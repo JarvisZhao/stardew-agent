@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "像素农场风格的 AI agent 会话管理面板：每个 Claude Code / Codex 会话是一块地。",
+  "license": "Apache-2.0",
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",

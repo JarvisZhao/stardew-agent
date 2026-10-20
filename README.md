@@ -65,3 +65,9 @@ npm run build       # 构建到 out/
 ## 说明
 
 - 美术是原创的像素画，风格参考星露谷物语，没有使用其素材。本项目与 ConcernedApe、Anthropic 均无关联。
+
+## 许可证
+
+Copyright 2026 JarvisZhao
+
+代码以 [Apache License 2.0](LICENSE) 开源：任何人都可以使用、修改、分发（包括商用），但要保留版权和许可声明、注明改动。许可证不授予项目名称或标志的商标使用权。
