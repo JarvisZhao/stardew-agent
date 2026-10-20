@@ -22,10 +22,13 @@ const api: FarmApi = {
   revive: (plotId) => ipcRenderer.invoke(IPC.revive, plotId),
   stop: (plotId) => ipcRenderer.invoke(IPC.stop, plotId),
   harvest: (plotId) => ipcRenderer.invoke(IPC.harvest, plotId),
-  readOutput: (plotId) => ipcRenderer.invoke(IPC.readOutput, plotId),
-  onOutput: (listener) => subscribe(IPC.output, listener),
-  write: (plotId, data) => ipcRenderer.send(IPC.write, plotId, data),
-  resize: (plotId, cols, rows) => ipcRenderer.send(IPC.resize, plotId, cols, rows)
+  readChat: (plotId) => ipcRenderer.invoke(IPC.readChat, plotId),
+  onChat: (listener) => subscribe(IPC.chat, listener),
+  sendMessage: (plotId, text) => ipcRenderer.invoke(IPC.sendMessage, plotId, text),
+  respondPermission: (plotId, itemId, allow) => ipcRenderer.invoke(IPC.respondPermission, plotId, itemId, allow),
+  pickOption: (plotId, label) => ipcRenderer.invoke(IPC.pickOption, plotId, label),
+  sendKey: (plotId, key) => ipcRenderer.send(IPC.sendKey, plotId, key),
+  readScreen: (plotId) => ipcRenderer.invoke(IPC.readScreen, plotId)
 }
 
 contextBridge.exposeInMainWorld('farm', api)

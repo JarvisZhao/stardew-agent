@@ -93,6 +93,12 @@ describe('applyEvent', () => {
     expect(applyEvent(live, { type: 'exited', exitCode: 1, expected: true }, T0)).toMatchObject({ state: 'dormant', running: false })
   })
 
+  it('waits on the user when Claude asks a multiple-choice question', () => {
+    const p = applyEvent(plot({ state: 'growing', waitingSince: null }), hook('PreToolUse', { tool_name: 'AskUserQuestion' }), T0)
+    expect(p).toMatchObject({ state: 'thirsty', note: '有问题要问你' })
+    expect(applyEvent(p, hook('PostToolUse', { tool_name: 'AskUserQuestion' }), T0 + 1).state).toBe('growing')
+  })
+
   it('returns the same object when nothing changes', () => {
     const p = plot({ state: 'thirsty' })
     expect(applyEvent(p, hook('PreToolUse'), T0 + 1)).toBe(p)

@@ -1,16 +1,19 @@
 // A simulated farm for running the UI in a plain browser (`npm run web`).
-// Nothing here talks to a real agent.
+// Nothing here talks to a real agent; events go through the same reducers as the
+// real app so the visuals match.
 
 import type { FarmApi } from '../../shared/api'
+import { applyChatEvent, type ChatEvent, type ChatItem } from '../../shared/chat'
 import { applyEvent, type PlotEvent } from '../../shared/plotMachine'
 import type { FarmSnapshot, Plot, PlantRequest } from '../../shared/types'
 
-const PROMPT = '\r\n\x1b[38;5;180m>\x1b[0m '
+type Hook = [name: string, payload: Record<string, unknown>]
 
 export function createDemoApi(): FarmApi {
   const now = Date.now()
   const minutes = (n: number): number => now - n * 60_000
   let seq = 0
+  let turn = 0
 
   const make = (name: string, overrides: Partial<Plot>): Plot => ({
     id: `demo-${++seq}`,
@@ -29,11 +32,15 @@ export function createDemoApi(): FarmApi {
     ...overrides
   })
 
+  const chats = new Map<string, ChatItem[]>()
+  const snapshotListeners = new Set<(s: FarmSnapshot) => void>()
+  const chatListeners = new Set<(id: string, items: ChatItem[]) => void>()
+
   let snapshot: FarmSnapshot = {
     plots: [
       make('重构登录模块', { growth: 8 }),
-      make('修复 CI', { state: 'pest', waitingSince: minutes(2), note: '等待批准：Bash(npm test)' }),
-      make('写周报', { state: 'thirsty', growth: 5, waitingSince: minutes(14) }),
+      make('修复 CI', { state: 'pest', waitingSince: minutes(2), note: '等待批准：Bash' }),
+      make('写周报', { state: 'thirsty', growth: 5, waitingSince: minutes(14), note: '有问题要问你' }),
       make('数据迁移脚本', { state: 'thirsty', growth: 9, waitingSince: minutes(42) }),
       make('翻译文档', { state: 'ripe', growth: 14, running: false }),
       make('单元测试', { agent: 'codex', state: 'ripe', growth: 10, running: false }),
@@ -43,49 +50,97 @@ export function createDemoApi(): FarmApi {
     harvested: []
   }
 
-  const snapshotListeners = new Set<(s: FarmSnapshot) => void>()
-  const outputListeners = new Set<(id: string, data: string, start: number) => void>()
-  const outputs = new Map<string, string>()
-
   const publish = (): void => snapshotListeners.forEach((l) => l(snapshot))
-  const print = (id: string, data: string): void => {
-    const before = outputs.get(id) ?? ''
-    outputs.set(id, before + data)
-    outputListeners.forEach((l) => l(id, data, before.length))
+
+  const chat = (id: string, event: ChatEvent): void => {
+    const before = chats.get(id) ?? []
+    const after = applyChatEvent(before, event, Date.now())
+    if (after === before) return
+    chats.set(id, after)
+    const old = new Set(before)
+    const changed = after.filter((i) => !old.has(i))
+    chatListeners.forEach((l) => l(id, changed))
   }
-  const update = (id: string, event: PlotEvent): void => {
+
+  const hook = (id: string, name: string, payload: Record<string, unknown> = {}): void => {
+    const event = { type: 'hook' as const, name, payload }
+    chat(id, event)
+    plotEvent(id, event)
+  }
+
+  const plotEvent = (id: string, event: PlotEvent): void => {
     snapshot = { ...snapshot, plots: snapshot.plots.map((p) => (p.id === id ? applyEvent(p, event, Date.now()) : p)) }
     publish()
   }
-  const hook = (id: string, name: string, payload: Record<string, unknown> = {}): void =>
-    update(id, { type: 'hook', name, payload })
 
-  const greet = (plot: Plot): void => {
-    print(
-      plot.id,
-      `\x1b[38;5;215m✻\x1b[0m \x1b[1mClaude Code\x1b[0m \x1b[38;5;245m(演示模式，不会连接真实的 agent)\x1b[0m\r\n` +
-        `\x1b[38;5;245m  ${plot.cwd}\x1b[0m\r\n` +
-        (plot.note ? `\r\n\x1b[38;5;203m${plot.note}\x1b[0m\r\n` : '') +
-        PROMPT
-    )
+  /** Replay a turn's hooks one by one, like a real session would send them. */
+  const play = (id: string, hooks: Hook[], gap = 450): void => {
+    hooks.forEach(([name, payload], i) => setTimeout(() => hook(id, name, payload), (i + 1) * gap))
   }
-  snapshot.plots.forEach(greet)
 
-  // Make growing plots grow, and let them finish their turn now and then.
+  const reply = (text: string): Hook[] => {
+    const turnId = `t${++turn}`
+    const lines = text.split('\n')
+    return [
+      ...lines.map((line, i): Hook => ['MessageDisplay', { turn_id: turnId, message_id: 1, delta: `${line}\n`, final: i === lines.length - 1 }]),
+      ['Stop', { last_assistant_message: text }]
+    ]
+  }
+
+  // Seed the demo conversations without notifications.
+  const seed = (id: string, events: Hook[]): void => {
+    for (const [name, payload] of events) chats.set(id, applyChatEvent(chats.get(id) ?? [], { type: 'hook', name, payload }, minutes(5)))
+  }
+  const [refactor, ci, report, migrate, translate, unitTest, research, deploy] = snapshot.plots.map((p) => p.id)
+
+  seed(refactor, [
+    ['UserPromptSubmit', { prompt: '把登录模块改成用 token 校验，旧的 session 方式先保留', prompt_id: 'a1' }],
+    ['PreToolUse', { tool_name: 'Grep', tool_use_id: 'r1', tool_input: { pattern: 'session.user' } }],
+    ['PostToolUse', { tool_name: 'Grep', tool_use_id: 'r1', tool_response: 'src/auth/login.ts:42\nsrc/auth/middleware.ts:17' }],
+    ['PreToolUse', { tool_name: 'Read', tool_use_id: 'r2', tool_input: { file_path: 'src/auth/login.ts' } }],
+    ['PostToolUse', { tool_name: 'Read', tool_use_id: 'r2', tool_response: '…' }],
+    ['MessageDisplay', { turn_id: 'x1', message_id: 1, delta: '找到两处用到 `session.user` 的地方，我先改 **middleware**，再加 token 校验。\n', final: true }],
+    ['PreToolUse', { tool_name: 'Edit', tool_use_id: 'r3', tool_input: { file_path: 'src/auth/middleware.ts' } }]
+  ])
+  seed(ci, [
+    ['UserPromptSubmit', { prompt: 'CI 上测试挂了，帮我看看', prompt_id: 'b1' }],
+    ['PreToolUse', { tool_name: 'Read', tool_use_id: 'c1', tool_input: { file_path: '.github/workflows/ci.yml' } }],
+    ['PostToolUse', { tool_name: 'Read', tool_use_id: 'c1', tool_response: '…' }],
+    ['MessageDisplay', { turn_id: 'x2', message_id: 1, delta: '我想先在本地把测试跑一遍，确认是哪一个挂了。\n', final: true }],
+    ['PreToolUse', { tool_name: 'Bash', tool_use_id: 'c2', tool_input: { command: 'npm test' } }],
+    ['PermissionRequest', { tool_name: 'Bash', tool_input: { command: 'npm test' } }]
+  ])
+  seed(report, [
+    ['UserPromptSubmit', { prompt: '根据这周的提交记录写一份周报', prompt_id: 'c1' }],
+    ['PreToolUse', { tool_name: 'Bash', tool_use_id: 'w1', tool_input: { command: 'git log --since="1 week ago" --oneline' } }],
+    ['PostToolUse', { tool_name: 'Bash', tool_use_id: 'w1', tool_response: { stdout: '3f2a1c0 修复登录超时\n9b7e2d4 增加导出功能\n…', stderr: '' } }],
+    ['PreToolUse', { tool_name: 'AskUserQuestion', tool_use_id: 'w2', tool_input: { questions: [{ question: '周报发给谁看？', options: [{ label: '团队群' }, { label: '老板邮件' }, { label: '两个都要' }] }] } }]
+  ])
+  seed(migrate, [
+    ['UserPromptSubmit', { prompt: '写一个把用户表从 MySQL 迁到 Postgres 的脚本', prompt_id: 'd1' }],
+    ...reply('脚本写好了，放在 `scripts/migrate-users.ts`。\n\n要点：\n- 分批迁移，每批 1000 行\n- 迁移前会先做一次行数核对\n\n要我先在测试库上跑一遍吗？')
+  ])
+  seed(translate, [['UserPromptSubmit', { prompt: '把 docs/ 翻译成英文', prompt_id: 'e1' }], ...reply('全部翻译完了，一共 12 个文件。')])
+  seed(unitTest, [['UserPromptSubmit', { prompt: '给 utils 补单元测试', prompt_id: 'f1' }], ...reply('补了 18 个测试，全部通过。')])
+  seed(research, [['UserPromptSubmit', { prompt: '调研一下这个老项目还有哪些依赖没升级', prompt_id: 'g1' }], ...reply('列了一份清单，主要是 3 个大版本落后的依赖。')])
+  seed(deploy, [['UserPromptSubmit', { prompt: '写个一键部署脚本', prompt_id: 'h1' }], ['StopFailure', { error: 'overloaded', last_assistant_message: 'API Error: overloaded' }]])
+  chats.set(research, applyChatEvent(chats.get(research)!, { type: 'exited', exitCode: 0, expected: true }, minutes(4)))
+  chats.set(translate, applyChatEvent(chats.get(translate)!, { type: 'exited', exitCode: 0, expected: false }, minutes(4)))
+  chats.set(unitTest, applyChatEvent(chats.get(unitTest)!, { type: 'exited', exitCode: 0, expected: false }, minutes(4)))
+
+  // Growing plots keep working on their own.
   setInterval(() => {
     for (const plot of snapshot.plots) {
       if (plot.state !== 'growing' || !plot.running) continue
-      hook(plot.id, 'PostToolUse')
-      if (Math.random() < 0.12) {
-        print(plot.id, '\r\n\x1b[38;5;114m⏺\x1b[0m 这一步做完了，接下来要我做什么？' + PROMPT)
-        hook(plot.id, 'Stop')
-      }
+      const id = `auto-${++turn}`
+      hook(plot.id, 'PostToolUse', { tool_name: 'Edit', tool_use_id: id })
+      if (Math.random() < 0.12) play(plot.id, reply('这一步做完了。接下来要我继续吗？'))
     }
   }, 4000)
 
-  const lines = new Map<string, string>()
+  const pendingQuestion = (id: string) => (chats.get(id) ?? []).find((i) => i.kind === 'question' && i.status === 'pending')
 
-  const api: FarmApi = {
+  return {
     async getSnapshot() {
       return snapshot
     },
@@ -110,7 +165,7 @@ export function createDemoApi(): FarmApi {
         remoteControl: request.remoteControl
       })
       snapshot = { ...snapshot, plots: [...snapshot.plots, plot] }
-      greet(plot)
+      chat(plot.id, { type: 'spawned', resumed: false })
       publish()
       return plot
     },
@@ -118,11 +173,12 @@ export function createDemoApi(): FarmApi {
       return null
     },
     async revive(id) {
-      update(id, { type: 'spawned', resumed: true })
-      print(id, '\r\n\x1b[38;5;245m（已唤醒，接着上次的对话）\x1b[0m' + PROMPT)
+      chat(id, { type: 'spawned', resumed: true })
+      plotEvent(id, { type: 'spawned', resumed: true })
     },
     async stop(id) {
-      update(id, { type: 'exited', exitCode: 0, expected: true })
+      chat(id, { type: 'exited', exitCode: 0, expected: true })
+      plotEvent(id, { type: 'exited', exitCode: 0, expected: true })
     },
     async harvest(id) {
       const plot = snapshot.plots.find((p) => p.id === id)
@@ -136,49 +192,43 @@ export function createDemoApi(): FarmApi {
       }
       publish()
     },
-    async readOutput(id) {
-      const data = outputs.get(id) ?? ''
-      return { data, end: data.length }
+    async readChat(id) {
+      return chats.get(id) ?? []
     },
-    onOutput(listener) {
-      outputListeners.add(listener)
-      return () => outputListeners.delete(listener)
+    onChat(listener) {
+      chatListeners.add(listener)
+      return () => chatListeners.delete(listener)
     },
-    write(id, data) {
-      const plot = snapshot.plots.find((p) => p.id === id)
-      if (!plot?.running) return
-      for (const ch of data) {
-        if (ch === '\r') {
-          const line = (lines.get(id) ?? '').trim()
-          lines.set(id, '')
-          if (!line) {
-            print(id, PROMPT)
-            continue
-          }
-          if (plot.state === 'pest') {
-            print(id, '\r\n\x1b[38;5;114m✔ 已批准\x1b[0m\r\n')
-            hook(id, 'PostToolUse')
-          } else {
-            hook(id, 'UserPromptSubmit')
-          }
-          print(id, '\r\n\x1b[38;5;215m✻\x1b[0m 思考中…\r\n')
-          setTimeout(() => {
-            print(id, `\x1b[38;5;114m⏺\x1b[0m 收到：「${line}」。演示模式里我只会假装干活。` + PROMPT)
-            hook(id, 'Stop')
-          }, 3000)
-        } else if (ch === '\x7f') {
-          const line = lines.get(id) ?? ''
-          if (line) {
-            lines.set(id, line.slice(0, -1))
-            print(id, '\b \b')
-          }
-        } else if (ch >= ' ') {
-          lines.set(id, (lines.get(id) ?? '') + ch)
-          print(id, ch)
-        }
+    async sendMessage(id, text) {
+      const tool = `demo-tool-${++turn}`
+      hook(id, 'UserPromptSubmit', { prompt: text, prompt_id: crypto.randomUUID() })
+      play(id, [
+        ['PreToolUse', { tool_name: 'Read', tool_use_id: tool, tool_input: { file_path: 'README.md' } }],
+        ['PostToolUse', { tool_name: 'Read', tool_use_id: tool, tool_response: '（演示内容）' }],
+        ...reply(`收到：「${text}」\n\n这是**演示模式**，我只会假装干活。真实的 app 里，这里是 Claude Code 的回复。`)
+      ])
+    },
+    async respondPermission(id, itemId, allow) {
+      chat(id, { type: 'permission-answered', itemId, allow })
+      const tool = (chats.get(id) ?? []).findLast((i) => i.kind === 'tool' && i.status === 'running')?.id.replace(/^tool-/, '')
+      if (allow) {
+        play(id, [['PostToolUse', { tool_name: 'Bash', tool_use_id: tool, tool_response: { stdout: 'Tests: 35 passed', stderr: '' } }], ...reply('测试都过了，CI 上挂是因为缓存过期。')])
+      } else {
+        play(id, reply('好的，不跑了。你想让我换个方式吗？'))
       }
     },
-    resize() {}
+    async pickOption(id, label) {
+      const question = pendingQuestion(id)
+      if (!question) throw new Error(`没找到选项「${label}」`)
+      const tool = question.id.replace(/^tool-/, '')
+      play(id, [['PostToolUse', { tool_name: 'AskUserQuestion', tool_use_id: tool }], ...reply(`好的，就按「${label}」来写。`)])
+    },
+    sendKey() {},
+    async readScreen(id) {
+      const question = pendingQuestion(id)
+      if (question?.kind !== 'question') return { text: '', dialog: false, known: null }
+      const q = question.questions[0]
+      return { text: [q.question, ...q.options.map((o, i) => `${i === 0 ? '❯' : ' '} ${i + 1}. ${o}`)].join('\n'), dialog: true, known: null }
+    }
   }
-  return api
 }

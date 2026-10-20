@@ -19,12 +19,15 @@ export function buildClaudeArgs(launch: ClaudeLaunch): string[] {
 }
 
 /**
- * Hook events we listen to; see the mapping in shared/plotMachine.ts.
+ * Hook events we listen to; see shared/plotMachine.ts (plot state) and
+ * shared/chat.ts (chat panel).
  * SessionStart is missing on purpose: it only supports command hooks, not HTTP.
  * Our own process events cover start and resume instead.
  */
 export const HOOK_EVENTS = [
   'UserPromptSubmit',
+  'MessageDisplay',
+  'PreToolUse',
   'PostToolUse',
   'PostToolUseFailure',
   'SubagentStop',

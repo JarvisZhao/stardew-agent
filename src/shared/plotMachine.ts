@@ -60,6 +60,11 @@ function applyHook(plot: Plot, name: string, payload: Record<string, unknown>, n
     case 'SubagentStop':
       return grow(p)
 
+    case 'PreToolUse':
+      // Claude asking a multiple-choice question waits on the user like a finished turn.
+      if (!fromSubagent && str(payload.tool_name) === 'AskUserQuestion') return enter({ ...p, note: '有问题要问你' }, 'thirsty', now)
+      return p
+
     case 'PermissionRequest': {
       const tool = str(payload.tool_name)
       return enter({ ...p, note: tool ? `等待批准：${tool}` : '等待批准' }, 'pest', now)

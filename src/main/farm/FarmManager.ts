@@ -1,4 +1,4 @@
-// The farm engine: owns the plots, their agent processes and persistence.
+// The farm engine: owns the plots, their agent processes, chat logs and persistence.
 // Deliberately free of Electron imports so it can be tested with plain Node.
 
 import { EventEmitter } from 'node:events'
@@ -6,14 +6,15 @@ import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { IPty } from 'node-pty'
+import type { KeyName, ScreenSnapshot } from '../../shared/api'
+import { applyChatEvent, type ChatEvent, type ChatItem } from '../../shared/chat'
 import { applyEvent, isWaiting, type PlotEvent } from '../../shared/plotMachine'
-import type { OutputChunk } from '../../shared/api'
 import type { FarmSnapshot, HarvestRecord, PlantRequest, Plot } from '../../shared/types'
 import { buildClaudeArgs, buildHookSettings, childEnv, HOOK_ENV } from './claude'
 import { toSpawnSpec, type ResolvedCommand } from './command'
 import { startHookServer, type HookServer } from './hookServer'
-import { OutputBuffer } from './outputBuffer'
-import { loadFarm, saveFarm } from './store'
+import { highlightedOption, optionMatches, Screen, SCREEN_COLS, SCREEN_ROWS } from './screen'
+import { loadChat, loadFarm, saveChat, saveFarm } from './store'
 
 export type SpawnFn = (
   file: string,
@@ -29,24 +30,34 @@ export interface FarmManagerOptions {
   platform?: NodeJS.Platform
   env?: NodeJS.ProcessEnv
   now?: () => number
+  /** Delay between pasting a message and pressing Enter, so the TUI sees them separately. */
+  submitDelayMs?: number
 }
 
 export interface FarmManagerEvents {
   snapshot: [FarmSnapshot]
-  output: [plotId: string, data: string, start: number]
+  /** Chat items that were added or changed for a plot. */
+  chat: [plotId: string, items: ChatItem[]]
   /** A plot just started waiting on the user. */
   attention: [Plot]
 }
 
+interface Session {
+  proc: IPty
+  screen: Screen
+}
+
 const MAX_NAME = 60
+const MAX_MESSAGE = 100_000
 
 export class FarmManager extends EventEmitter<FarmManagerEvents> {
   private plots: Plot[]
   private harvested: HarvestRecord[]
-  private readonly processes = new Map<string, IPty>()
-  private readonly outputs = new Map<string, OutputBuffer>()
+  private readonly sessions = new Map<string, Session>()
+  private readonly chats = new Map<string, ChatItem[]>()
   /** Plots whose process we are stopping on purpose; their exit makes them dormant. */
   private readonly stopping = new Set<string>()
+  private readonly dirtyChats = new Set<string>()
   private saveTimer: NodeJS.Timeout | null = null
   private disposed = false
 
@@ -65,6 +76,7 @@ export class FarmManager extends EventEmitter<FarmManagerEvents> {
         : p
     )
     this.harvested = initial.harvested
+    for (const plot of this.plots) this.chats.set(plot.id, loadChat(opts.dataDir, plot.id))
   }
 
   static async create(options: FarmManagerOptions): Promise<FarmManager> {
@@ -72,6 +84,7 @@ export class FarmManager extends EventEmitter<FarmManagerEvents> {
       platform: process.platform,
       env: process.env,
       now: Date.now,
+      submitDelayMs: 80,
       ...options
     }
     fs.mkdirSync(opts.dataDir, { recursive: true })
@@ -88,8 +101,10 @@ export class FarmManager extends EventEmitter<FarmManagerEvents> {
   }
 
   get runningCount(): number {
-    return this.processes.size
+    return this.sessions.size
   }
+
+  // ---------------------------------------------------------------- plots
 
   plant(request: PlantRequest): Plot {
     const name = request.name.trim().slice(0, MAX_NAME)
@@ -115,10 +130,12 @@ export class FarmManager extends EventEmitter<FarmManagerEvents> {
       note: null
     }
     this.plots = [...this.plots, plot]
+    this.chats.set(plot.id, [])
     try {
       this.launch(plot, false)
     } catch (error) {
       this.plots = this.plots.filter((p) => p.id !== plot.id)
+      this.chats.delete(plot.id)
       throw error
     }
     return this.find(plot.id)
@@ -126,28 +143,29 @@ export class FarmManager extends EventEmitter<FarmManagerEvents> {
 
   revive(plotId: string): void {
     const plot = this.find(plotId)
-    if (this.processes.has(plotId)) return
+    if (this.sessions.has(plotId)) return
     if (!isDirectory(plot.cwd)) throw new Error(`找不到目录：${plot.cwd}`)
     this.launch(plot, true)
   }
 
   stop(plotId: string): void {
-    const proc = this.processes.get(plotId)
-    if (!proc) return
+    const session = this.sessions.get(plotId)
+    if (!session) return
     this.stopping.add(plotId)
-    proc.kill()
+    session.proc.kill()
   }
 
   harvest(plotId: string): void {
     const plot = this.find(plotId)
-    if (this.processes.has(plotId)) {
+    const session = this.sessions.get(plotId)
+    if (session) {
       // Detach first so the exit doesn't resurrect the plot we are removing.
-      const proc = this.processes.get(plotId)!
-      this.processes.delete(plotId)
-      proc.kill()
+      this.sessions.delete(plotId)
+      session.proc.kill()
+      session.screen.dispose()
     }
     this.plots = this.plots.filter((p) => p.id !== plotId)
-    this.outputs.delete(plotId)
+    this.chats.delete(plotId)
     this.harvested = [
       {
         id: plot.id,
@@ -164,40 +182,74 @@ export class FarmManager extends EventEmitter<FarmManagerEvents> {
     this.changed()
   }
 
-  readOutput(plotId: string): OutputChunk {
-    const buffer = this.outputs.get(plotId)
-    return buffer ? { data: buffer.toString(), end: buffer.total } : { data: '', end: 0 }
+  // ----------------------------------------------------------------- chat
+
+  readChat(plotId: string): ChatItem[] {
+    this.find(plotId)
+    return this.chats.get(plotId) ?? []
   }
 
-  write(plotId: string, data: string): void {
-    this.processes.get(plotId)?.write(data)
+  /** Type a message into the session the way a person would paste it, then press Enter. */
+  async sendMessage(plotId: string, text: string): Promise<void> {
+    const session = this.live(plotId)
+    const message = text.replace(/\r\n/g, '\n').trim()
+    if (!message) return
+    if (message.length > MAX_MESSAGE) throw new Error('消息太长了')
+    session.proc.write(session.screen.paste(message))
+    await delay(this.opts.submitDelayMs)
+    if (this.sessions.get(plotId) === session) session.proc.write('\r')
   }
 
-  resize(plotId: string, cols: number, rows: number): void {
-    const proc = this.processes.get(plotId)
-    if (!proc) return
-    try {
-      proc.resize(Math.max(20, Math.floor(cols)), Math.max(5, Math.floor(rows)))
-    } catch {
-      // The process may have exited between the check and the resize.
+  /**
+   * Answer the permission dialog in the TUI: pick its "Yes" option, or Esc to
+   * decline. The hook itself never blocks, so the phone can answer too.
+   */
+  async respondPermission(plotId: string, itemId: string, allow: boolean): Promise<void> {
+    const session = this.live(plotId)
+    const item = this.chats.get(plotId)?.find((i) => i.id === itemId)
+    if (item?.kind !== 'permission' || item.status !== 'pending') return
+    if (allow) {
+      if (!(await this.choose(session, 'Yes'))) throw new Error('没看到审批框，可能已经在别处处理了')
+    } else {
+      session.proc.write(session.screen.key('escape'))
     }
+    this.updateChat(plotId, { type: 'permission-answered', itemId, allow })
+  }
+
+  async pickOption(plotId: string, label: string): Promise<void> {
+    const session = this.live(plotId)
+    if (!label.trim()) return
+    if (!(await this.choose(session, label))) throw new Error(`没找到选项「${label}」，可能已经在别处处理了`)
+  }
+
+  sendKey(plotId: string, key: KeyName): void {
+    const session = this.sessions.get(plotId)
+    session?.proc.write(session.screen.key(key))
+  }
+
+  readScreen(plotId: string): ScreenSnapshot {
+    this.find(plotId)
+    return this.sessions.get(plotId)?.screen.snapshot() ?? { text: '', dialog: false, known: null }
   }
 
   /** Stop every process (plots become dormant), save and close the hook server. */
   async dispose(): Promise<void> {
     if (this.disposed) return
     this.disposed = true
-    for (const [id, proc] of this.processes) {
+    for (const [id, session] of this.sessions) {
       this.stopping.add(id)
       try {
-        proc.kill()
+        session.proc.kill()
       } catch {
         // already gone
       }
+      session.screen.dispose()
     }
     const now = this.opts.now()
-    this.plots = this.plots.map((p) => (p.running ? applyEvent(p, { type: 'exited', exitCode: 0, expected: true }, now) : p))
-    this.processes.clear()
+    const asleep: PlotEvent = { type: 'exited', exitCode: 0, expected: true }
+    for (const plot of this.plots) if (plot.running) this.updateChat(plot.id, asleep)
+    this.plots = this.plots.map((p) => (p.running ? applyEvent(p, asleep, now) : p))
+    this.sessions.clear()
     this.flush()
     await this.hooks.close()
   }
@@ -218,25 +270,20 @@ export class FarmManager extends EventEmitter<FarmManagerEvents> {
     const spec = toSpawnSpec(cmd, args, this.opts.platform, this.opts.env.ComSpec)
     const proc = this.opts.spawn(spec.file, spec.args, {
       name: 'xterm-256color',
-      cols: 120,
-      rows: 32,
+      cols: SCREEN_COLS,
+      rows: SCREEN_ROWS,
       cwd: plot.cwd,
       env: childEnv(this.opts.env, { [HOOK_ENV.token]: this.hooks.token, [HOOK_ENV.plotId]: plot.id })
     })
+    const session: Session = { proc, screen: new Screen() }
+    this.sessions.set(plot.id, session)
 
-    this.processes.set(plot.id, proc)
-    if (!this.outputs.has(plot.id)) this.outputs.set(plot.id, new OutputBuffer())
-    const buffer = this.outputs.get(plot.id)!
-
-    proc.onData((data) => {
-      const start = buffer.total
-      buffer.push(data)
-      this.emit('output', plot.id, data, start)
-    })
+    proc.onData((data) => session.screen.write(data))
     proc.onExit(({ exitCode }) => {
       // Ignore exits of processes we already detached (harvest) or replaced.
-      if (this.processes.get(plot.id) !== proc) return
-      this.processes.delete(plot.id)
+      if (this.sessions.get(plot.id) !== session) return
+      this.sessions.delete(plot.id)
+      session.screen.dispose()
       const expected = this.stopping.delete(plot.id)
       this.update(plot.id, { type: 'exited', exitCode, expected })
     })
@@ -244,12 +291,62 @@ export class FarmManager extends EventEmitter<FarmManagerEvents> {
     this.update(plot.id, { type: 'spawned', resumed: resume })
   }
 
+  /**
+   * Move the menu highlight to the option starting with `label`, then press Enter.
+   * Reads the screen after every key so we never confirm the wrong option (the
+   * trust dialog, for one, highlights "No, exit" by default).
+   */
+  private async choose(session: Session, label: string): Promise<boolean> {
+    const read = (): string | null => highlightedOption(session.screen.snapshot().text)
+    const until = async (done: (h: string | null) => boolean, ms: number): Promise<string | null> => {
+      const end = Date.now() + ms
+      for (;;) {
+        const h = read()
+        if (done(h) || Date.now() > end || !this.isLive(session)) return h
+        await delay(30)
+      }
+    }
+
+    // The menu may not be drawn yet: the hook often arrives before the screen.
+    let current = await until((h) => h !== null, 2000)
+    const visited = new Set<string>()
+    for (const direction of ['down', 'up'] as const) {
+      for (let step = 0; step < 12 && current !== null; step++) {
+        if (optionMatches(current, label)) {
+          session.proc.write(session.screen.key('enter'))
+          return true
+        }
+        visited.add(current)
+        const before = current
+        session.proc.write(session.screen.key(direction))
+        current = await until((h) => h !== before, 800)
+        // End of the list, or (going down) wrapped around to an option we checked.
+        if (current === before || (direction === 'down' && current !== null && visited.has(current))) break
+      }
+    }
+    return false
+  }
+
+  private isLive(session: Session): boolean {
+    for (const s of this.sessions.values()) if (s === session) return true
+    return false
+  }
+
+  private live(plotId: string): Session {
+    this.find(plotId)
+    const session = this.sessions.get(plotId)
+    if (!session) throw new Error('这块地在休眠，先唤醒它')
+    return session
+  }
+
   private onHook(plotId: string, name: string, payload: Record<string, unknown>): void {
     if (!this.plots.some((p) => p.id === plotId)) return
     this.update(plotId, { type: 'hook', name, payload })
   }
 
+  /** Feed an event to both the plot's state machine and its chat log. */
   private update(plotId: string, event: PlotEvent): void {
+    this.updateChat(plotId, event)
     const before = this.plots.find((p) => p.id === plotId)
     if (!before) return
     const after = applyEvent(before, event, this.opts.now())
@@ -261,6 +358,21 @@ export class FarmManager extends EventEmitter<FarmManagerEvents> {
     this.changed()
   }
 
+  private updateChat(plotId: string, event: ChatEvent): void {
+    const before = this.chats.get(plotId) ?? []
+    const after = applyChatEvent(before, event, this.opts.now())
+    if (after === before) return
+    this.chats.set(plotId, after)
+    this.dirtyChats.add(plotId)
+    const old = new Set(before)
+    this.emit(
+      'chat',
+      plotId,
+      after.filter((item) => !old.has(item))
+    )
+    this.scheduleSave()
+  }
+
   private find(plotId: string): Plot {
     const plot = this.plots.find((p) => p.id === plotId)
     if (!plot) throw new Error('这块地不存在了')
@@ -270,7 +382,11 @@ export class FarmManager extends EventEmitter<FarmManagerEvents> {
   private changed(): void {
     if (this.disposed) return
     this.emit('snapshot', this.snapshot())
-    if (this.saveTimer) return
+    this.scheduleSave()
+  }
+
+  private scheduleSave(): void {
+    if (this.disposed || this.saveTimer) return
     this.saveTimer = setTimeout(() => {
       this.saveTimer = null
       this.flush()
@@ -283,6 +399,11 @@ export class FarmManager extends EventEmitter<FarmManagerEvents> {
       this.saveTimer = null
     }
     saveFarm(this.opts.dataDir, this.snapshot())
+    for (const plotId of this.dirtyChats) {
+      const chat = this.chats.get(plotId)
+      if (chat) saveChat(this.opts.dataDir, plotId, chat)
+    }
+    this.dirtyChats.clear()
   }
 }
 
@@ -292,4 +413,8 @@ function isDirectory(dir: string): boolean {
   } catch {
     return false
   }
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }

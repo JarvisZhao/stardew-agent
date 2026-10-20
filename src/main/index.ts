@@ -5,7 +5,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import * as pty from 'node-pty'
-import { IPC } from '../shared/api'
+import { IPC, KEY_NAMES, type KeyName } from '../shared/api'
+import type { ChatItem } from '../shared/chat'
 import type { FarmSnapshot, PlantRequest, Plot } from '../shared/types'
 import { claudeCandidates, resolveCommand, type ResolvedCommand, type ResolveEnv } from './farm/command'
 import { FarmManager } from './farm/FarmManager'
@@ -185,16 +186,16 @@ function wireFarm(farm: FarmManager): void {
     updateTray(snapshot)
   })
 
-  // Terminal output arrives in many small chunks; forward it at most once per frame.
-  const pending = new Map<string, { start: number; data: string }>()
+  // Streaming replies change the chat many times a second; forward at most once per frame.
+  const pending = new Map<string, Map<string, ChatItem>>()
   let timer: NodeJS.Timeout | null = null
-  farm.on('output', (plotId, data, start) => {
-    const queued = pending.get(plotId)
-    if (queued) queued.data += data
-    else pending.set(plotId, { start, data })
+  farm.on('chat', (plotId, items) => {
+    const queued = pending.get(plotId) ?? new Map<string, ChatItem>()
+    for (const item of items) queued.set(item.id, item)
+    pending.set(plotId, queued)
     timer ??= setTimeout(() => {
       timer = null
-      for (const [id, chunk] of pending) send(IPC.output, id, chunk.data, chunk.start)
+      for (const [id, changed] of pending) send(IPC.chat, id, [...changed.values()])
       pending.clear()
     }, 16)
   })
@@ -239,16 +240,19 @@ function registerIpc(farm: FarmManager): void {
   handle(IPC.revive, (id) => farm.revive(text(id)))
   handle(IPC.stop, (id) => farm.stop(text(id)))
   handle(IPC.harvest, (id) => farm.harvest(text(id)))
-  handle(IPC.readOutput, (id) => farm.readOutput(text(id)))
+  handle(IPC.readChat, (id) => farm.readChat(text(id)))
+  handle(IPC.readScreen, (id) => farm.readScreen(text(id)))
+  handle(IPC.sendMessage, (id, message) => farm.sendMessage(text(id), text(message, 100_000)))
+  handle(IPC.respondPermission, (id, itemId, allow) => farm.respondPermission(text(id), text(itemId), allow === true))
+  handle(IPC.pickOption, (id, label) => farm.pickOption(text(id), text(label, 500)))
 
-  ipcMain.on(IPC.write, (event: IpcMainEvent, id: unknown, data: unknown) => {
-    if (isTrusted(event) && typeof id === 'string' && typeof data === 'string') farm.write(id, data)
+  ipcMain.on(IPC.sendKey, (event: IpcMainEvent, id: unknown, key: unknown) => {
+    if (isTrusted(event) && typeof id === 'string' && isKeyName(key)) farm.sendKey(id, key)
   })
-  ipcMain.on(IPC.resize, (event: IpcMainEvent, id: unknown, cols: unknown, rows: unknown) => {
-    if (isTrusted(event) && typeof id === 'string' && typeof cols === 'number' && typeof rows === 'number' && Number.isFinite(cols) && Number.isFinite(rows)) {
-      farm.resize(id, cols, rows)
-    }
-  })
+}
+
+function isKeyName(value: unknown): value is KeyName {
+  return typeof value === 'string' && (KEY_NAMES as readonly string[]).includes(value)
 }
 
 function isTrusted(event: IpcMainEvent | IpcMainInvokeEvent): boolean {

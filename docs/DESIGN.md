@@ -115,6 +115,7 @@ hooks 用官方的 HTTP 类型，发到 app 主进程里的本地 hook 服务：
 | 进程启动（`--resume`） | 缺水 |
 | `UserPromptSubmit` | 生长中，生长值 +1 |
 | `PostToolUse` / `PostToolUseFailure` / `SubagentStop` | 生长中，生长值 +1 |
+| `PreToolUse`（`AskUserQuestion`，Claude 出多选题） | 缺水 |
 | `PermissionRequest`、`Notification`（`permission_prompt`） | 虫害 |
 | `Notification`（`idle_prompt`、`elicitation_dialog`） | 缺水 |
 | `Stop` | 缺水 |
@@ -122,11 +123,31 @@ hooks 用官方的 HTTP 类型，发到 app 主进程里的本地 hook 服务：
 | 进程正常退出 | 成熟 |
 | 进程异常退出 | 枯萎 |
 
-第一阶段 `PermissionRequest` hook 只上报、不做决定，用户在地里的终端里批准。睡觉模式再让它返回 allow / deny。
+`PermissionRequest` hook 只上报、不做决定，审批在对话界面里完成（见 8.3）。hook 不阻塞，所以手机上用 Remote Control 也能同时审批。睡觉模式再让它返回 allow / deny。
 
-### 8.3 直接对话
+### 8.3 对话界面（不展示终端）
 
-点开一块地，右侧是这个会话的终端（xterm.js），直接在里面打字。每块地在主进程里保留最近一段终端输出，切换地块时回放。
+大部分用户不用终端，所以右侧是 app 自己的对话界面，没有终端标签。Claude Code 照样是用户自己装的原版程序，运行在后台一个不显示的终端里（node-pty），Remote Control 和登录方式都不受影响。
+
+**显示**：对话内容来自官方 hooks，app 自己记录每块地的对话（存在数据目录的 `chats/` 下），重开 app 也能看到历史。
+
+| 对话界面 | 来源 |
+|---|---|
+| 用户消息 | `UserPromptSubmit` 的 `prompt` |
+| Claude 的回复（流式） | `MessageDisplay` 的逐段文字；收不到时用 `Stop` 的 `last_assistant_message` 兜底 |
+| 工具调用（读文件、跑命令、改代码） | `PreToolUse` / `PostToolUse`，用大白话标题显示 |
+| 审批卡片 | `PermissionRequest` |
+| 多选题卡片 | `PreToolUse`（`AskUserQuestion`） |
+| 出错提示 | `StopFailure` |
+
+**输入**：输入框的内容以"粘贴"的方式送进后台终端（终端开了 bracketed paste 就用它，多行消息不会被提前发出），稍等片刻再按回车。
+
+**审批、选项和对话框**：后台用一个虚拟终端（@xterm/headless）读取 Claude Code 当前的画面。
+
+- 审批卡片的"批准"、多选题的选项按钮：先读画面里当前高亮的选项（`❯` 指着的那行），确认是目标选项才按回车，不是就按上下键移过去。不能盲按回车：实测"信任目录"对话框默认选中的是 "No, exit"。"拒绝"按 Esc。
+- 找不到对应的选项（比如已经在手机上处理了）就报错，不乱按。
+- "信任这个目录吗？"有专门的卡片。
+- 其他没有专门卡片的对话框（选模型等），显示一张"Claude Code 在等你选择"的卡片：画面文字 + 上 / 下 / 确定 / 取消四个按键。常见的以后逐个做成专门的卡片。
 
 ### 8.4 生命周期
 
@@ -138,7 +159,7 @@ hooks 用官方的 HTTP 类型，发到 app 主进程里的本地 hook 服务：
 
 - 支持 Pro、Max、Team、Enterprise（Team / Enterprise 要管理员开开关）。**API key 登录不支持**，Bedrock / Vertex / Foundry、自定义网关、ZDR / HIPAA 组织也不支持。不满足条件时 `--remote-control` 仍会正常启动交互会话，只是同步不可用。
 - 开着时对话记录会存在 Anthropic 服务器上（用于同步），隐私说明里要写清楚。
-- 第一次使用会弹一次性确认；新目录会问是否信任。都在内嵌终端里由用户确认。
+- 第一次使用会弹一次性确认；新目录会问是否信任。都在对话界面的卡片里由用户确认。
 
 ### 8.6 Claude 桌面 app Code 标签页里的会话（以后）
 
@@ -174,7 +195,7 @@ Claude Code 的 agent view（研究预览）支持 `claude --bg` 启动由它自
 ## 12. 技术栈与目录
 
 - Electron + electron-vite + React + TypeScript，测试用 Vitest。
-- 终端：node-pty（主进程）+ xterm.js（界面）。
+- 后台终端：node-pty 运行 Claude Code，@xterm/headless 读取画面。界面上不展示终端。
 - 像素图：代码里用字符矩阵定义，运行时画到 canvas。
 
 ```
@@ -189,7 +210,7 @@ docs/          设计文档
 
 ## 13. 路线图
 
-1. **第一阶段（进行中）**：Claude 地块——播种、状态、内嵌终端对话、Remote Control、托盘常驻、休眠唤醒、采摘归档、系统通知。
+1. **第一阶段（进行中）**：Claude 地块——播种、状态、对话界面、Remote Control、托盘常驻、休眠唤醒、采摘归档、系统通知。农场改成星露谷式的 3/4 俯视像素场景。
 2. Codex 地块（app-server）。
 3. 知识库：施肥（播种时注入 context）、采摘时自动总结、出货箱。
 4. 睡觉模式与自动审批白名单、起床结算。
@@ -203,4 +224,5 @@ docs/          设计文档
 - 桌面 app Code 标签页是否实时写对话记录。
 - 后台会话（`claude --bg`）能否开 Remote Control。
 - `claude agents --json` 是否包含桌面 app 的会话。
-- `PermissionRequest` hook 在交互模式下与终端里的审批框的先后关系。
+- `MessageDisplay` 能否通过 HTTP hook 送达（不行就只显示每轮的最终回复）。
+- 真实的审批框、多选题菜单的选项文字和高亮方式是否和测试里模拟的一致（"批准"要找以 Yes 开头的选项）。
