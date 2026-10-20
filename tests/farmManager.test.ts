@@ -17,7 +17,8 @@ const dirs: string[] = []
 
 afterEach(async () => {
   await Promise.all(managers.splice(0).map((m) => m.dispose()))
-  for (const dir of dirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true })
+  // On Windows a killed process can hold its working directory for a moment.
+  for (const dir of dirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 })
 
 function tempDir(): string {
@@ -48,6 +49,8 @@ async function waitUntil<T>(probe: () => T | undefined | false, what: string): P
 }
 
 const plotOf = (m: FarmManager, id: string): Plot => m.snapshot().plots.find((p) => p.id === id)!
+/** Screen text with wrapped lines joined back together (long temp paths wrap at 88 columns). */
+const screenOf = (m: FarmManager, id: string): string => m.readScreen(id).text.replace(/\n/g, '')
 const lastOf = <K extends ChatItem['kind']>(m: FarmManager, id: string, kind: K) =>
   m.readChat(id).filter((i): i is Extract<ChatItem, { kind: K }> => i.kind === kind).at(-1)
 
@@ -61,7 +64,7 @@ describe('FarmManager', () => {
   it('chats with the session: message, streamed reply, tool card', async () => {
     const manager = await createManager(tempDir())
     const plot = await plantReady(manager, 'demo plot')
-    const screen = manager.readScreen(plot.id).text
+    const screen = screenOf(manager, plot.id)
     expect(screen).toContain('--session-id')
     expect(screen).toContain('--remote-control')
 
@@ -164,7 +167,7 @@ describe('FarmManager', () => {
     expect(second.readChat(plot.id).map((i) => i.kind)).toEqual(['notice', 'user', 'tool', 'assistant', 'notice'])
 
     second.revive(plot.id)
-    await waitUntil(() => second.readScreen(plot.id).text.includes('--resume'), 'resumed process')
+    await waitUntil(() => screenOf(second, plot.id).includes('--resume'), 'resumed process')
     expect(plotOf(second, plot.id)).toMatchObject({ state: 'thirsty', running: true, sessionId: plot.sessionId })
   })
 
