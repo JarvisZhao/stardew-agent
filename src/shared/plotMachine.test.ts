@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyEvent, growthStage, nextPlotToTend, wiltLevel, type PlotEvent } from './plotMachine'
+import { applyEvent, freeSlot, growthStage, nextPlotToTend, wiltLevel, type PlotEvent } from './plotMachine'
 import type { Plot } from './types'
 
 const T0 = 1_700_000_000_000
@@ -19,6 +19,7 @@ function plot(overrides: Partial<Plot> = {}): Plot {
     updatedAt: T0,
     waitingSince: T0,
     note: null,
+    slot: 0,
     ...overrides
   }
 }
@@ -103,6 +104,14 @@ describe('applyEvent', () => {
     const p = plot({ state: 'thirsty' })
     expect(applyEvent(p, hook('PreToolUse'), T0 + 1)).toBe(p)
     expect(applyEvent(p, hook('SomethingNew'), T0 + 1)).toBe(p)
+  })
+})
+
+describe('freeSlot', () => {
+  it('reuses the lowest gap', () => {
+    expect(freeSlot([])).toBe(0)
+    expect(freeSlot([{ slot: 0 }, { slot: 2 }])).toBe(1)
+    expect(freeSlot([{ slot: 1 }, { slot: 0 }])).toBe(2)
   })
 })
 

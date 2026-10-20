@@ -8,7 +8,7 @@ import path from 'node:path'
 import type { IPty } from 'node-pty'
 import type { KeyName, ScreenSnapshot } from '../../shared/api'
 import { applyChatEvent, type ChatEvent, type ChatItem } from '../../shared/chat'
-import { applyEvent, isWaiting, type PlotEvent } from '../../shared/plotMachine'
+import { applyEvent, freeSlot, isWaiting, type PlotEvent } from '../../shared/plotMachine'
 import type { FarmSnapshot, HarvestRecord, PlantRequest, Plot } from '../../shared/types'
 import { buildClaudeArgs, buildHookSettings, childEnv, HOOK_ENV } from './claude'
 import { toSpawnSpec, type ResolvedCommand } from './command'
@@ -127,7 +127,8 @@ export class FarmManager extends EventEmitter<FarmManagerEvents> {
       createdAt: now,
       updatedAt: now,
       waitingSince: now,
-      note: null
+      note: null,
+      slot: freeSlot(this.plots)
     }
     this.plots = [...this.plots, plot]
     this.chats.set(plot.id, [])

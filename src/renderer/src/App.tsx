@@ -2,10 +2,10 @@ import { useEffect, useState } from 'react'
 import { nextPlotToTend } from '../../shared/plotMachine'
 import type { FarmInfo, FarmSnapshot } from '../../shared/types'
 import { farm } from './api'
-import { Farm } from './components/Farm'
 import { PlantDialog } from './components/PlantDialog'
 import { PlotPanel } from './components/PlotPanel'
 import { TopBar } from './components/TopBar'
+import { FarmWorld } from './world/FarmWorld'
 
 function useNow(intervalMs: number): number {
   const [now, setNow] = useState(() => Date.now())
@@ -46,8 +46,9 @@ export function App() {
         onNext={next ? () => setSelectedId(next.id) : null}
       />
       <main className={selected ? 'layout with-panel' : 'layout'}>
-        <Farm
+        <FarmWorld
           plots={snapshot.plots}
+          harvestedCount={snapshot.harvested.length}
           now={now}
           selectedId={selected?.id ?? null}
           onSelect={(id) => setSelectedId((current) => (current === id ? null : id))}

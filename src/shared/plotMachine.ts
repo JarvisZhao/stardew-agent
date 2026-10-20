@@ -139,6 +139,14 @@ export function wiltLevel(plot: Pick<Plot, 'state' | 'waitingSince'>, now: numbe
  * The plot the user should tend next: pests first (quick to handle), then the
  * plots that have waited the longest for a reply.
  */
+/** The lowest field slot no plot is using. */
+export function freeSlot(plots: readonly Pick<Plot, 'slot'>[]): number {
+  const used = new Set(plots.map((p) => p.slot))
+  let slot = 0
+  while (used.has(slot)) slot++
+  return slot
+}
+
 export function nextPlotToTend(plots: readonly Plot[]): Plot | undefined {
   const rank = (p: Plot): number => (p.state === 'pest' ? 0 : 1)
   return plots

@@ -32,6 +32,8 @@ export interface Plot {
   waitingSince: number | null
   /** Short detail for the user: the tool awaiting approval, an error, etc. */
   note: string | null
+  /** Fixed position in the field, so plots don't move when others are harvested. */
+  slot: number
 }
 
 export interface HarvestRecord {

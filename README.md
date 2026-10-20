@@ -1,6 +1,6 @@
 # Stardew Agent
 
-像素农场风格的 AI agent 会话管理面板。每个 Claude Code 会话是农场里的一块地：
+星露谷风格的 AI agent 会话管理面板。每个 Claude Code 会话是农场里的一块地：
 
 - 🌱 **生长中**：agent 在思考、在干活
 - 💧 **缺水**：在等你回复（等得越久，植物越蔫）
@@ -10,7 +10,9 @@
 
 点开一块地，右边就是这个会话的对话界面：直接聊天、批准操作、回答 Claude 的选择题，不用碰终端，也不用在一堆窗口之间来回切。
 
-![演示模式截图](docs/screenshot.png)
+![农场全景（演示模式）](docs/screenshot-farm.png)
+
+![点开一块地：农夫走过去，右边是对话（演示模式）](docs/screenshot.png)
 
 > 目前处于第一阶段：支持 Claude Code。Codex、知识库、睡觉模式、NPC 等在路线图里，见 [设计文档](docs/DESIGN.md)。
 

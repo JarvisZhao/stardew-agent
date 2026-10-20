@@ -195,296 +195,74 @@ button {
   font-size: 12px;
 }
 
-/* ------------------------------------------------------------------- farm */
+/* ------------------------------------------------------------------ world */
 
-.farm {
+.world {
+  position: relative;
   flex: 1;
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  background-color: var(--grass);
-  background-image: var(--grass-tile);
-  background-size: 64px 64px;
+  overflow: hidden;
+  background: var(--grass-dark);
+}
+
+.world-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   image-rendering: pixelated;
-  overflow: auto;
+  cursor: grab;
+  touch-action: none;
 }
 
-.field {
-  position: relative;
-  margin: 20px;
-  padding: 20px;
-  flex: 1;
-  border: var(--px) solid var(--ink);
-  background: rgba(110, 68, 34, 0.22);
-  box-shadow:
-    inset 0 0 0 4px #c89858,
-    inset 0 0 0 8px #8a5a2a,
-    0 4px 0 rgba(0, 0, 0, 0.25);
-}
-
-.plots {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, 168px);
-  gap: 22px 18px;
-  justify-content: start;
-}
-
-.empty-hint {
+.world-tip {
+  display: none;
+  position: absolute;
+  max-width: 260px;
+  padding: 6px 10px;
   background: var(--paper);
   border: 3px solid var(--ink);
-  padding: 8px 14px;
-  margin-bottom: 18px;
-  display: inline-block;
-}
-
-.empty-hint p {
-  margin: 4px 0;
-}
-
-/* ------------------------------------------------------------------- plot */
-
-.plot {
-  position: relative;
-  width: 168px;
-  padding: 8px 0 0;
-  background: none;
-  border: none;
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-.soil {
-  position: relative;
-  width: 132px;
-  height: 120px;
-  border: var(--px) solid #3a2210;
-  background-color: #a8703a;
-  background-size: 64px 64px;
-  image-rendering: pixelated;
-  box-shadow:
-    inset 0 4px 0 rgba(0, 0, 0, 0.22),
-    0 4px 0 rgba(0, 0, 0, 0.3);
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  overflow: hidden;
-}
-
-.soil-untilled {
-  background: rgba(0, 0, 0, 0.12);
-  border-style: dashed;
-  border-color: rgba(43, 26, 14, 0.6);
-  box-shadow: none;
-  align-items: center;
-}
-
-.plus {
-  font-size: 42px;
-  font-weight: 800;
-  color: rgba(43, 26, 14, 0.55);
-}
-
-.plot-empty:hover .soil-untilled {
-  background: rgba(0, 0, 0, 0.2);
-}
-
-.crop {
-  margin-bottom: 4px;
-  transform-origin: 50% 100%;
-  transition: filter 0.6s;
-}
-
-.plot.selected .soil {
-  border-color: var(--gold);
-  box-shadow:
-    0 0 0 3px var(--ink),
-    0 4px 0 3px rgba(0, 0, 0, 0.3);
-}
-
-.plot:hover:not(.selected) .soil {
-  filter: brightness(1.06);
-}
-
-.agent-tag {
-  position: absolute;
-  top: 4px;
-  left: 4px;
-  font-size: 10px;
-  font-weight: 700;
-  padding: 0 4px;
-  border: 2px solid var(--ink);
-  background: #f6b04a;
-  color: var(--ink);
-}
-
-.agent-codex {
-  background: #8fb0ff;
-}
-
-/* states */
-
-.state-growing .crop {
-  animation: sway 2.6s ease-in-out infinite;
-}
-
-.state-thirsty .crop,
-.state-seeded .crop {
-  filter: saturate(0.85);
-}
-
-.wilt-1 .crop {
-  filter: saturate(0.5) brightness(0.95);
-  transform: rotate(7deg);
-}
-
-.wilt-2 .crop {
-  filter: saturate(0.4) sepia(0.45) brightness(0.92);
-  transform: rotate(14deg) translateY(4px);
-}
-
-.state-pest .soil {
-  animation: alarm 1.2s steps(2) infinite;
-}
-
-.bug {
-  position: absolute;
-  bottom: 44px;
-  left: 30px;
-  animation: crawl 3.2s steps(16) infinite alternate;
-}
-
-.state-dormant .soil {
-  filter: grayscale(0.45) brightness(0.72);
-}
-
-.state-withered .soil {
-  filter: saturate(0.6);
-}
-
-.sparkle,
-.sparkle::before,
-.sparkle::after {
-  position: absolute;
-  width: 8px;
-  height: 8px;
-  background: var(--gold);
-  box-shadow: 0 0 0 2px #fff3a8;
-  animation: twinkle 1.6s steps(2) infinite;
-}
-
-.sparkle {
-  top: 14px;
-  right: 22px;
-}
-
-.sparkle::before {
-  content: '';
-  top: 30px;
-  left: -86px;
-  animation-delay: 0.5s;
-}
-
-.sparkle::after {
-  content: '';
-  top: 58px;
-  left: -10px;
-  animation-delay: 1s;
-}
-
-.bubble {
-  position: absolute;
-  top: -6px;
-  right: 6px;
-  background: #fff8e0;
-  border: 3px solid var(--ink);
-  padding: 4px;
-  line-height: 0;
-  animation: bob 1.4s ease-in-out infinite;
-  z-index: 1;
-}
-
-.bubble::after {
-  content: '';
-  position: absolute;
-  bottom: -9px;
-  left: 8px;
-  width: 6px;
-  height: 6px;
-  background: #fff8e0;
-  border: 3px solid var(--ink);
-  border-top: none;
-  border-left: none;
-  transform: skewX(30deg);
-}
-
-.state-pest .bubble {
-  background: #ffd6cf;
-}
-
-.state-pest .bubble::after {
-  background: #ffd6cf;
-}
-
-.state-dormant .bubble,
-.state-ripe .bubble,
-.state-withered .bubble {
-  animation: none;
-}
-
-.sign {
-  margin-top: 10px;
-  width: 156px;
-  padding: 4px 6px 5px;
-  background: var(--wood-light);
-  border: 3px solid var(--ink);
-  box-shadow:
-    inset -2px -2px 0 var(--wood),
-    inset 2px 2px 0 var(--wood-hi);
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  text-align: center;
-}
-
-.sign-name {
-  font-weight: 700;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.sign-status {
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.25);
   font-size: 12px;
-  color: #4a2c14;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: pre-wrap;
+  word-break: break-all;
+  pointer-events: none;
+  z-index: 2;
 }
 
-.state-pest .sign {
-  background: #f0a090;
-  box-shadow:
-    inset -2px -2px 0 #c0604a,
-    inset 2px 2px 0 #ffd0c4;
+.world-zoom {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
-.state-thirsty.wilt-2 .sign {
-  background: #e8c070;
+.world-zoom .btn {
+  width: 34px;
+  font-size: 16px;
+  line-height: 1;
+  padding: 4px 0 6px;
 }
 
 /* ----------------------------------------------------------------- legend */
 
 .legend {
+  position: absolute;
+  left: 12px;
+  top: 12px;
   display: flex;
   flex-wrap: wrap;
-  gap: 6px 18px;
-  margin: 0 20px 16px;
-  padding: 6px 12px;
-  background: var(--paper);
+  gap: 4px 14px;
+  width: fit-content;
+  max-width: calc(100% - 76px);
+  padding: 5px 10px;
+  background: rgba(247, 230, 191, 0.88);
   border: 3px solid var(--ink);
   font-size: 12px;
+  pointer-events: none;
+  opacity: 0.9;
 }
 
 .legend span {
@@ -495,7 +273,6 @@ button {
 
 .legend-note {
   color: var(--muted);
-  margin-left: auto;
 }
 
 /* ------------------------------------------------------------------ panel */
@@ -1104,44 +881,6 @@ input:not([type]):focus {
 }
 
 /* ------------------------------------------------------------- animations */
-
-@keyframes sway {
-  0%,
-  100% {
-    transform: rotate(-3deg);
-  }
-  50% {
-    transform: rotate(3deg);
-  }
-}
-
-@keyframes bob {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-4px);
-  }
-}
-
-@keyframes crawl {
-  from {
-    transform: translateX(0);
-  }
-  to {
-    transform: translateX(36px);
-  }
-}
-
-@keyframes alarm {
-  0% {
-    border-color: #3a2210;
-  }
-  100% {
-    border-color: var(--red);
-  }
-}
 
 @keyframes spin {
   to {

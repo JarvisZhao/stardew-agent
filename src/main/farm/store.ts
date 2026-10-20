@@ -18,8 +18,13 @@ export function loadFarm(dataDir: string): FarmSnapshot {
   try {
     const raw = JSON.parse(fs.readFileSync(path.join(dataDir, FILE), 'utf8')) as Partial<StoredFarm>
     if (raw.version !== VERSION) return { plots: [], harvested: [] }
+    const plots = Array.isArray(raw.plots) ? raw.plots : []
+    // Farms saved before plots had slots: keep their order.
+    plots.forEach((p, i) => {
+      if (typeof p.slot !== 'number') p.slot = i
+    })
     return {
-      plots: Array.isArray(raw.plots) ? raw.plots : [],
+      plots,
       harvested: Array.isArray(raw.harvested) ? raw.harvested : []
     }
   } catch {

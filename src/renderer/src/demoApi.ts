@@ -4,7 +4,7 @@
 
 import type { FarmApi } from '../../shared/api'
 import { applyChatEvent, type ChatEvent, type ChatItem } from '../../shared/chat'
-import { applyEvent, type PlotEvent } from '../../shared/plotMachine'
+import { applyEvent, freeSlot, type PlotEvent } from '../../shared/plotMachine'
 import type { FarmSnapshot, Plot, PlantRequest } from '../../shared/types'
 
 type Hook = [name: string, payload: Record<string, unknown>]
@@ -29,6 +29,7 @@ export function createDemoApi(): FarmApi {
     updatedAt: now,
     waitingSince: null,
     note: null,
+    slot: seq - 1,
     ...overrides
   })
 
@@ -157,6 +158,7 @@ export function createDemoApi(): FarmApi {
     async plant(request: PlantRequest) {
       if (!request.name.trim()) throw new Error('请给这块地起个名字')
       const plot = make(request.name.trim(), {
+        slot: freeSlot(snapshot.plots),
         cwd: request.cwd || `~/projects/${request.name.trim()}`,
         state: 'seeded',
         growth: 0,

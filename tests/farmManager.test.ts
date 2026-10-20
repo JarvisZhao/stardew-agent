@@ -177,3 +177,17 @@ describe('FarmManager', () => {
     expect(manager.snapshot().plots).toHaveLength(0)
   })
 })
+
+describe('field slots', () => {
+  it('gives new plots the lowest free slot and keeps the others in place', async () => {
+    const manager = await createManager(tempDir())
+    const a = await plantReady(manager, 'a')
+    const b = await plantReady(manager, 'b')
+    const c = await plantReady(manager, 'c')
+    expect([a.slot, b.slot, c.slot]).toEqual([0, 1, 2])
+    manager.harvest(b.id)
+    expect(plotOf(manager, c.id).slot).toBe(2)
+    const d = await plantReady(manager, 'd')
+    expect(d.slot).toBe(1)
+  })
+})
