@@ -237,8 +237,10 @@ export class FarmManager extends EventEmitter<FarmManagerEvents> {
   async dispose(): Promise<void> {
     if (this.disposed) return
     this.disposed = true
+    const exits: Array<Promise<void>> = []
     for (const [id, session] of this.sessions) {
       this.stopping.add(id)
+      exits.push(exited(session.proc, EXIT_WAIT_MS))
       try {
         session.proc.kill()
       } catch {
@@ -252,7 +254,9 @@ export class FarmManager extends EventEmitter<FarmManagerEvents> {
     this.plots = this.plots.map((p) => (p.running ? applyEvent(p, asleep, now) : p))
     this.sessions.clear()
     this.flush()
-    await this.hooks.close()
+    // On Windows node-pty can take a few seconds to end the process tree; don't
+    // leave Claude Code running behind us.
+    await Promise.all([...exits, this.hooks.close()])
   }
 
   // -------------------------------------------------------------------------
@@ -414,6 +418,21 @@ function isDirectory(dir: string): boolean {
   } catch {
     return false
   }
+}
+
+const EXIT_WAIT_MS = 6000
+
+/** Resolves when the process exits, or after `ms` at the latest. */
+function exited(proc: IPty, ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(done, ms)
+    const listener = proc.onExit(done)
+    function done(): void {
+      clearTimeout(timer)
+      listener.dispose()
+      resolve()
+    }
+  })
 }
 
 function delay(ms: number): Promise<void> {

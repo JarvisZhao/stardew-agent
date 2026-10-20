@@ -17,9 +17,16 @@ const dirs: string[] = []
 
 afterEach(async () => {
   await Promise.all(managers.splice(0).map((m) => m.dispose()))
-  // On Windows a killed process can hold its working directory for a moment.
-  for (const dir of dirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
-})
+  for (const dir of dirs.splice(0)) {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 200 })
+    } catch (error) {
+      // On Windows an exiting process can keep its working folder busy a while
+      // longer; a leftover temp folder is not worth failing the run for.
+      if ((error as NodeJS.ErrnoException).code !== 'EBUSY') throw error
+    }
+  }
+}, 30_000)
 
 function tempDir(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'stardew-test-'))
