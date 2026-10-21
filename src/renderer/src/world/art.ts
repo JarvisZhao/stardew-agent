@@ -6,16 +6,16 @@ import { hex, Pix, rng, shade, type Rgba } from './pixel'
 
 export const TILE = 16
 
-const INK = hex('#2b1a0e')
-const SHADOW: Rgba = [20, 30, 10, 70]
+export const INK = hex('#2b1a0e')
+export const SHADOW: Rgba = [20, 30, 10, 70]
 
-const WOOD = { hi: hex('#e6b47a'), light: hex('#d39a5e'), mid: hex('#b0763c'), dark: hex('#7a4a22'), deep: hex('#5a3418') }
-const GRASS = { hi: hex('#9ad35e'), light: hex('#80c24f'), mid: hex('#6db042'), dark: hex('#5a9a36'), deep: hex('#4a842c') }
-const DIRT = { light: hex('#e2c08a'), mid: hex('#d2aa72'), dark: hex('#b88c58') }
-const LEAF = [hex('#9ad85e'), hex('#74bd45'), hex('#57a035'), hex('#3f822b'), hex('#2e6522')]
-const LEAF_INK = hex('#1d3f16')
+export const WOOD = { hi: hex('#e6b47a'), light: hex('#d39a5e'), mid: hex('#b0763c'), dark: hex('#7a4a22'), deep: hex('#5a3418') }
+export const GRASS = { hi: hex('#9ad35e'), light: hex('#80c24f'), mid: hex('#6db042'), dark: hex('#5a9a36'), deep: hex('#4a842c') }
+export const DIRT = { light: hex('#e2c08a'), mid: hex('#d2aa72'), dark: hex('#b88c58') }
+export const LEAF = [hex('#9ad85e'), hex('#74bd45'), hex('#57a035'), hex('#3f822b'), hex('#2e6522')]
+export const LEAF_INK = hex('#1d3f16')
 
-function groundShadow(p: Pix, cx: number, cy: number, rx: number, ry: number): void {
+export function groundShadow(p: Pix, cx: number, cy: number, rx: number, ry: number): void {
   p.ellipse(cx, cy, rx, ry, (x, y) => (p.opaque(x, y) ? null : SHADOW))
 }
 
@@ -205,14 +205,14 @@ export function emptyBed(tw: number, th: number): Pix {
 // ---------------------------------------------------------------------------
 // Nature
 
-function canopy(p: Pix, blobs: Array<[number, number, number, number]>, seed: number): void {
+export function canopy(p: Pix, blobs: Array<[number, number, number, number]>, seed: number, leaves: readonly Rgba[] = LEAF): void {
   const r = rng(seed)
   for (const [cx, cy, rx, ry] of blobs) {
     p.ellipse(cx, cy, rx, ry, (_x, _y, dx, dy) => {
       // Light from the top left; a little noise for leaves.
       const light = -dx * 0.55 - dy * 0.8 + (r() - 0.5) * 0.35
       const i = light > 0.75 ? 0 : light > 0.25 ? 1 : light > -0.25 ? 2 : light > -0.7 ? 3 : 4
-      return LEAF[i]
+      return leaves[i]
     })
   }
 }
@@ -269,7 +269,7 @@ export function bush(seed: number): Pix {
 // ---------------------------------------------------------------------------
 // Buildings and props
 
-function planks(p: Pix, x: number, y: number, w: number, h: number, light: Rgba, dark: Rgba, seam: Rgba, seed: number): void {
+export function planks(p: Pix, x: number, y: number, w: number, h: number, light: Rgba, dark: Rgba, seam: Rgba, seed: number): void {
   const r = rng(seed)
   for (let j = 0; j < h; j++) {
     const row = Math.floor(j / 4)
@@ -286,7 +286,7 @@ function planks(p: Pix, x: number, y: number, w: number, h: number, light: Rgba,
   }
 }
 
-function window(p: Pix, x: number, y: number, w: number, h: number): void {
+export function window(p: Pix, x: number, y: number, w: number, h: number): void {
   p.rect(x - 1, y - 1, w + 2, h + 2, INK)
   p.rect(x, y, w, h, WOOD.light)
   p.rect(x + 1, y + 1, w - 2, h - 2, hex('#7ec4ee'))
@@ -303,7 +303,7 @@ function window(p: Pix, x: number, y: number, w: number, h: number): void {
 }
 
 /** Roof seen from the front at 3/4: a trapezoid of shingle rows. */
-function roof(p: Pix, top: number, bottom: number, xTop: [number, number], xBottom: [number, number], colour: Rgba, seed: number): void {
+export function roof(p: Pix, top: number, bottom: number, xTop: [number, number], xBottom: [number, number], colour: Rgba, seed: number): void {
   const r = rng(seed)
   for (let y = top; y <= bottom; y++) {
     const t = (y - top) / (bottom - top)

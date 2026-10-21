@@ -278,9 +278,8 @@ button {
 /* ------------------------------------------------------------------ panel */
 
 .panel {
-  width: 54%;
-  min-width: 480px;
-  max-width: 900px;
+  width: clamp(420px, 40%, 760px);
+  flex: none;
   display: flex;
   flex-direction: column;
   background: var(--paper);
@@ -757,6 +756,162 @@ button {
 .revive-bar span {
   flex: 1;
   color: var(--muted);
+}
+
+/* ------------------------------------------------------------------ board */
+
+.board {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+.board-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px 8px 18px;
+}
+
+.board-head h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.board-head .muted {
+  flex: 1;
+  margin: 0;
+}
+
+.board-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.board-group h3 {
+  margin: 4px 2px 6px;
+  font-size: 13px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.board-group h3 b {
+  background: var(--paper-dark);
+  border: 2px solid var(--ink);
+  padding: 0 6px;
+  font-size: 12px;
+  color: var(--ink);
+}
+
+.group-needsYou h3 {
+  color: #9a2a1c;
+}
+
+.quest {
+  border: 3px solid var(--ink);
+  background: #fffaf0;
+  padding: 8px 10px 9px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.15);
+}
+
+.quest:hover {
+  background: #fff;
+}
+
+.quest.group-needsYou {
+  border-left: 8px solid var(--red);
+  background: #fff3ee;
+}
+
+.quest.group-waiting {
+  border-left: 8px solid var(--blue);
+}
+
+.quest.group-working {
+  border-left: 8px solid var(--leaf);
+}
+
+.quest.group-resting {
+  border-left: 8px solid #b8b0a0;
+  opacity: 0.9;
+}
+
+.quest-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.quest-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.quest-title strong {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.quest-title .muted {
+  margin: 0;
+}
+
+.junimo-avatar {
+  image-rendering: pixelated;
+  flex: none;
+}
+
+.badge-small {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-width: 2px;
+}
+
+.quest p {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  user-select: text;
+}
+
+.quest-note {
+  color: #9a2a1c;
+  font-weight: 600;
+}
+
+.quest-prompt {
+  color: var(--muted);
+}
+
+.quest-prompt span {
+  font-weight: 700;
+}
+
+.quest-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
 }
 
 /* ----------------------------------------------------------------- dialog */

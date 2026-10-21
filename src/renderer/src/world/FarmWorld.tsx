@@ -3,10 +3,11 @@ import { freeSlot as lowestFreeSlot } from '../../../shared/plotMachine'
 import type { Plot } from '../../../shared/types'
 import { AGENT_LABEL, statusLine } from '../labels'
 import { Sprite } from '../sprite'
-import { bedRect, clampCamera, contains, fitZoom, layoutWorld, screenToWorld, slotHitRect, tendSpot, TILE, zoomAt, type Camera, type PropKind } from './layout'
+import { junimoDestination, junimoTargets } from './junimos'
+import { bedRect, clampCamera, contains, fitZoom, layoutWorld, screenToWorld, slotHitRect, tendSpot, TILE, zoomAt, type Camera, type Place, type PropKind } from './layout'
 import { renderScene, type Scene } from './render'
 import * as sprites from './sprites'
-import { createWalker, stepWalker, walkTo } from './walker'
+import { createWalker, stepWalker, walkTo, type Walker } from './walker'
 
 interface Props {
   plots: Plot[]
@@ -18,10 +19,26 @@ interface Props {
 }
 
 const PROP_NAMES: Partial<Record<PropKind, string>> = {
-  farmhouse: '农舍',
-  library: '图书馆 · 知识库（即将开放）',
+  farmhouse: '农舍 · 你住在这里',
+  museum: '博物馆 · 在读代码、查资料的祝尼魔',
+  blacksmith: '铁匠铺 · 在跑命令的祝尼魔',
+  mine: '矿洞 · 在搜索文件的祝尼魔',
+  communityCenter: '社区中心 · 广场上是等你处理的祝尼魔（审批、提问、出错）',
+  fountain: '广场 · 等你处理的祝尼魔在这里集合',
+  junimoHut: '祝尼魔小屋 · 一轮做完、等你下一步的祝尼魔在这里歇着',
   mailbox: '信箱 · NPC 的来信（即将开放）',
   bulletinBoard: '公告栏 · 全局待办（即将开放）'
+}
+
+/** Which Junimo gathering place a building's tooltip should count. */
+const PROP_PLACE: Partial<Record<PropKind, Place>> = {
+  museum: 'museum',
+  blacksmith: 'blacksmith',
+  mine: 'mine',
+  communityCenter: 'plaza',
+  fountain: 'plaza',
+  junimoHut: 'hut',
+  shippingBin: 'bin'
 }
 
 /** The farm as a game world: a canvas with a camera you can drag and zoom. */
@@ -36,7 +53,10 @@ export function FarmWorld(props: Props) {
   const world = useRef({
     cam: null as Camera | null,
     camTarget: null as { x: number; y: number } | null,
-    walker: createWalker(6.5 * TILE, 8 * TILE),
+    walker: createWalker(6.5 * TILE, 9 * TILE),
+    junimos: new Map<string, Walker>(),
+    /** Where each Junimo was last sent, to notice when its target moves. */
+    junimoGoals: new Map<string, string>(),
     hoverSlot: null as number | null,
     view: { w: 1, h: 1, dpr: 1 }
   })
@@ -80,9 +100,10 @@ export function FarmWorld(props: Props) {
       const worldH = layout.rows * TILE
       const field = layout.field
       if (!w.cam) {
-        // First frame: fit the field (plus a margin), with the farmhouse at the top.
-        const zoom = fitZoom(w.view.w, (field.tw + 6) * TILE)
-        w.cam = { zoom, x: (field.tx + field.tw / 2) * TILE, y: TILE + w.view.h / 2 / zoom }
+        // First frame: the field at the left edge, the plaza beside it as far as it fits,
+        // the cliff at the top.
+        const zoom = fitZoom(w.view.w, (layout.plaza.tx + layout.plaza.tw - field.tx + 2) * TILE)
+        w.cam = { zoom, x: (field.tx - 1) * TILE + w.view.w / 2 / zoom, y: w.view.h / 2 / zoom }
       }
       if (w.camTarget) {
         // Glide until the selected plot is in the middle (or as close as the map edge allows).
@@ -93,6 +114,27 @@ export function FarmWorld(props: Props) {
       }
       w.cam = clampCamera(w.cam, w.view.w, w.view.h, worldW, worldH)
       stepWalker(w.walker, dt)
+      // Junimos: born at the hut, then always heading for their session's spot.
+      const targets = junimoTargets(layout, plots)
+      for (const [id, target] of targets) {
+        let j = w.junimos.get(id)
+        if (!j) {
+          j = createWalker(layout.places.hut.x, layout.places.hut.y)
+          w.junimos.set(id, j)
+        }
+        const key = `${Math.round(target.x)},${Math.round(target.y)}`
+        if (w.junimoGoals.get(id) !== key) {
+          w.junimoGoals.set(id, key)
+          walkTo(j, layout, target)
+        }
+        stepWalker(j, dt)
+      }
+      for (const id of w.junimos.keys()) {
+        if (!targets.has(id)) {
+          w.junimos.delete(id)
+          w.junimoGoals.delete(id)
+        }
+      }
       const scene: Scene = {
         layout,
         plots,
@@ -100,6 +142,7 @@ export function FarmWorld(props: Props) {
         selectedId: latest.current.selectedId,
         hoverSlot: w.hoverSlot,
         walker: w.walker,
+        junimos: w.junimos,
         now: Date.now()
       }
       renderScene(ctx, w.view, w.cam, scene, time)
@@ -129,7 +172,7 @@ export function FarmWorld(props: Props) {
     return { x: (e.clientX - rect.left) * dpr, y: (e.clientY - rect.top) * dpr }
   }
 
-  /** What is under the pointer: a slot (plot or free ground) or a building. */
+  /** What is under the pointer: a Junimo, a slot (plot or free ground) or a building. */
   const hitTest = (e: { clientX: number; clientY: number }): { slot: number | null; prop: PropKind | null } => {
     const w = world.current
     if (!w.cam) return { slot: null, prop: null }
@@ -138,13 +181,17 @@ export function FarmWorld(props: Props) {
     const { plots } = latest.current
     const layout = layoutWorld(plots.map((pl) => pl.slot))
     const free = lowestFreeSlot(plots)
+    for (const plot of plots) {
+      const j = w.junimos.get(plot.id)
+      if (j && contains({ x: j.x - 8, y: j.y - 16, w: 16, h: 20 }, p.x, p.y)) return { slot: plot.slot, prop: null }
+    }
     for (let slot = 0; slot < layout.slots; slot++) {
       if (!contains(slotHitRect(layout, slot), p.x, p.y)) continue
       if (slot === free || plots.some((pl) => pl.slot === slot)) return { slot, prop: null }
     }
     for (const prop of layout.props) {
       if (!PROP_NAMES[prop.kind] && prop.kind !== 'shippingBin') continue
-      const s = sprites.prop(prop.kind, prop.seed)
+      const s = sprites.prop(prop)
       if (contains({ x: prop.x, y: prop.y, w: s.w, h: s.h }, p.x, p.y)) return { slot: null, prop: prop.kind }
     }
     return { slot: null, prop: null }
@@ -190,7 +237,10 @@ export function FarmWorld(props: Props) {
       if (plot.note) lines.push(plot.note)
       showTip(e, lines.join('\n'))
     } else if (hit.prop) {
-      showTip(e, hit.prop === 'shippingBin' ? `出货箱 · 已采摘 ${harvestedCount} 块地` : (PROP_NAMES[hit.prop] ?? null))
+      const base = hit.prop === 'shippingBin' ? `出货箱 · 已采摘 ${harvestedCount} 块地` : (PROP_NAMES[hit.prop] ?? '')
+      const place = PROP_PLACE[hit.prop]
+      const here = place ? plots.filter((p) => junimoDestination(p) === place).map((p) => p.name) : []
+      showTip(e, here.length ? `${base}\n现在在这里：${here.join('、')}` : base)
     } else {
       showTip(e, null)
     }

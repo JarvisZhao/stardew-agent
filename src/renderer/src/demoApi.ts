@@ -30,6 +30,9 @@ export function createDemoApi(): FarmApi {
     waitingSince: null,
     note: null,
     slot: seq - 1,
+    activity: null,
+    lastPrompt: null,
+    summary: null,
     ...overrides
   })
 
@@ -39,14 +42,30 @@ export function createDemoApi(): FarmApi {
 
   let snapshot: FarmSnapshot = {
     plots: [
-      make('重构登录模块', { growth: 8 }),
-      make('修复 CI', { state: 'pest', waitingSince: minutes(2), note: '等待批准：Bash' }),
-      make('写周报', { state: 'thirsty', growth: 5, waitingSince: minutes(14), note: '有问题要问你' }),
-      make('数据迁移脚本', { state: 'thirsty', growth: 9, waitingSince: minutes(42) }),
-      make('翻译文档', { state: 'ripe', growth: 14, running: false }),
-      make('单元测试', { agent: 'codex', state: 'ripe', growth: 10, running: false }),
-      make('老项目调研', { state: 'dormant', growth: 4, running: false }),
-      make('部署脚本', { state: 'withered', growth: 2, note: '出错：API overloaded' })
+      make('重构登录模块', { growth: 8, activity: 'edit', lastPrompt: '把登录模块改成用 token 校验，旧的 session 方式先保留' }),
+      make('修复 CI', {
+        state: 'pest',
+        waitingSince: minutes(2),
+        note: '等待批准：Bash',
+        activity: 'command',
+        lastPrompt: 'CI 上测试挂了，帮我看看',
+        summary: '我想先在本地把测试跑一遍，确认是哪一个挂了。'
+      }),
+      make('写周报', { state: 'thirsty', growth: 5, waitingSince: minutes(14), note: '有问题要问你', lastPrompt: '根据这周的提交记录写一份周报' }),
+      make('数据迁移脚本', {
+        state: 'thirsty',
+        growth: 9,
+        waitingSince: minutes(42),
+        lastPrompt: '写一个把用户表从 MySQL 迁到 Postgres 的脚本',
+        summary: '脚本写好了，放在 scripts/migrate-users.ts。要我先在测试库上跑一遍吗？'
+      }),
+      make('翻译文档', { state: 'ripe', growth: 14, running: false, lastPrompt: '把 docs/ 翻译成英文', summary: '全部翻译完了，一共 12 个文件。' }),
+      make('单元测试', { agent: 'codex', state: 'ripe', growth: 10, running: false, lastPrompt: '给 utils 补单元测试', summary: '补了 18 个测试，全部通过。' }),
+      make('老项目调研', { state: 'dormant', growth: 4, running: false, lastPrompt: '调研一下这个老项目还有哪些依赖没升级', summary: '列了一份清单，主要是 3 个大版本落后的依赖。' }),
+      make('部署脚本', { state: 'withered', growth: 2, note: '出错：API overloaded', lastPrompt: '写个一键部署脚本' }),
+      make('跑集成测试', { growth: 7, activity: 'command', lastPrompt: '把集成测试全部跑一遍，失败的修掉' }),
+      make('排查内存泄漏', { growth: 4, activity: 'search', lastPrompt: '服务跑一天内存就涨到 4G，帮我找找原因' }),
+      make('调研支付 SDK', { growth: 3, activity: 'read', lastPrompt: '对比一下 Stripe 和 Adyen 的 SDK，哪个更适合我们' })
     ],
     harvested: []
   }
@@ -134,7 +153,10 @@ export function createDemoApi(): FarmApi {
     for (const plot of snapshot.plots) {
       if (plot.state !== 'growing' || !plot.running) continue
       const id = `auto-${++turn}`
-      hook(plot.id, 'PostToolUse', { tool_name: 'Edit', tool_use_id: id })
+      // Now and then switch to a different kind of work, so Junimos move around town.
+      const tool = Math.random() < 0.3 ? ['Edit', 'Bash', 'Read', 'Grep'][Math.floor(Math.random() * 4)] : null
+      if (tool) hook(plot.id, 'PreToolUse', { tool_name: tool, tool_use_id: id, tool_input: {} })
+      hook(plot.id, 'PostToolUse', { tool_name: tool ?? 'Edit', tool_use_id: id })
       if (Math.random() < 0.12) play(plot.id, reply('这一步做完了。接下来要我继续吗？'))
     }
   }, 4000)

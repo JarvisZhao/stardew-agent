@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyEvent, freeSlot, growthStage, nextPlotToTend, wiltLevel, type PlotEvent } from './plotMachine'
+import { activityOf, applyEvent, freeSlot, growthStage, nextPlotToTend, wiltLevel, type PlotEvent } from './plotMachine'
 import type { Plot } from './types'
 
 const T0 = 1_700_000_000_000
@@ -20,6 +20,9 @@ function plot(overrides: Partial<Plot> = {}): Plot {
     waitingSince: T0,
     note: null,
     slot: 0,
+    activity: null,
+    lastPrompt: null,
+    summary: null,
     ...overrides
   }
 }
@@ -140,5 +143,39 @@ describe('derived visuals', () => {
     ]
     expect(nextPlotToTend(plots)?.id).toBe('b')
     expect(nextPlotToTend(plots.filter((p) => p.id !== 'b'))?.id).toBe('c')
+  })
+})
+
+describe('activity and summaries', () => {
+  it('follows the latest main-thread tool and clears when the turn ends', () => {
+    let p = applyEvent(plot(), hook('UserPromptSubmit', { prompt: '  修一下\n登录的  bug ' }), T0)
+    expect(p).toMatchObject({ activity: 'think', lastPrompt: '修一下 登录的 bug' })
+    p = applyEvent(p, hook('PreToolUse', { tool_name: 'Grep' }), T0 + 1)
+    expect(p.activity).toBe('search')
+    p = applyEvent(p, hook('PreToolUse', { tool_name: 'Bash' }), T0 + 2)
+    expect(p.activity).toBe('command')
+    p = applyEvent(p, hook('PreToolUse', { tool_name: 'Edit', agent_id: 'sub' }), T0 + 3)
+    expect(p.activity).toBe('command')
+    p = applyEvent(p, hook('Stop', { last_assistant_message: '修好了，测试都过了。' }), T0 + 4)
+    expect(p).toMatchObject({ activity: null, summary: '修好了，测试都过了。' })
+  })
+
+  it('maps tools to parts of town', () => {
+    expect(['Edit', 'Write', 'Bash', 'Read', 'WebSearch', 'Glob', 'Task', 'TodoWrite', 'mcp__x__y'].map(activityOf)).toEqual([
+      'edit',
+      'edit',
+      'command',
+      'read',
+      'read',
+      'search',
+      'delegate',
+      'think',
+      'read'
+    ])
+  })
+
+  it('cuts long summaries', () => {
+    const p = applyEvent(plot({ state: 'growing' }), hook('Stop', { last_assistant_message: 'x'.repeat(500) }), T0)
+    expect(p.summary).toHaveLength(161)
   })
 })

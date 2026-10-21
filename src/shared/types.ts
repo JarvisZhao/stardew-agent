@@ -14,6 +14,9 @@ export type AgentKind = 'claude' | 'codex'
  */
 export type PlotState = 'seeded' | 'growing' | 'thirsty' | 'pest' | 'withered' | 'ripe' | 'dormant'
 
+/** What a working session is busy with, judging by its latest tool call. */
+export type Activity = 'think' | 'edit' | 'command' | 'read' | 'search' | 'delegate'
+
 export interface Plot {
   id: string
   agent: AgentKind
@@ -34,6 +37,12 @@ export interface Plot {
   note: string | null
   /** Fixed position in the field, so plots don't move when others are harvested. */
   slot: number
+  /** Set while the agent works; null when it is not working. */
+  activity: Activity | null
+  /** The user's latest instruction, shortened. */
+  lastPrompt: string | null
+  /** Claude's latest reply, shortened. */
+  summary: string | null
 }
 
 export interface HarvestRecord {

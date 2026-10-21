@@ -4,6 +4,7 @@ import type { FarmInfo, FarmSnapshot } from '../../shared/types'
 import { farm } from './api'
 import { PlantDialog } from './components/PlantDialog'
 import { PlotPanel } from './components/PlotPanel'
+import { TaskBoard } from './components/TaskBoard'
 import { TopBar } from './components/TopBar'
 import { FarmWorld } from './world/FarmWorld'
 
@@ -45,7 +46,7 @@ export function App() {
         onPlant={() => setPlanting(true)}
         onNext={next ? () => setSelectedId(next.id) : null}
       />
-      <main className={selected ? 'layout with-panel' : 'layout'}>
+      <main className="layout">
         <FarmWorld
           plots={snapshot.plots}
           harvestedCount={snapshot.harvested.length}
@@ -54,7 +55,13 @@ export function App() {
           onSelect={(id) => setSelectedId((current) => (current === id ? null : id))}
           onPlant={() => setPlanting(true)}
         />
-        {selected && <PlotPanel key={selected.id} plot={selected} now={now} onClose={() => setSelectedId(null)} />}
+        {selected ? (
+          <PlotPanel key={selected.id} plot={selected} now={now} onClose={() => setSelectedId(null)} />
+        ) : (
+          <aside className="panel">
+            <TaskBoard plots={snapshot.plots} now={now} onOpen={setSelectedId} onPlant={() => setPlanting(true)} />
+          </aside>
+        )}
       </main>
       {planting && (
         <PlantDialog

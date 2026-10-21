@@ -1,7 +1,7 @@
 // Pure state transitions for a plot. Everything that changes how a plot looks
 // goes through applyEvent so it can be unit tested without processes or Electron.
 
-import type { Plot, PlotState } from './types'
+import type { Activity, Plot, PlotState } from './types'
 
 export type PlotEvent =
   /** The agent process was started (fresh or with --resume). */
@@ -25,10 +25,10 @@ export function applyEvent(plot: Plot, event: PlotEvent, now: number): Plot {
 function reduce(plot: Plot, event: PlotEvent, now: number): Plot {
   switch (event.type) {
     case 'spawned':
-      return enter({ ...plot, running: true, note: null }, event.resumed ? 'thirsty' : 'seeded', now)
+      return enter({ ...plot, running: true, note: null, activity: null }, event.resumed ? 'thirsty' : 'seeded', now)
 
     case 'exited': {
-      const stopped = { ...plot, running: false }
+      const stopped = { ...plot, running: false, activity: null }
       if (event.expected) return enter(stopped, 'dormant', now)
       if (event.exitCode === 0) return enter({ ...stopped, note: null }, 'ripe', now)
       return enter({ ...stopped, note: `进程异常退出（代码 ${event.exitCode}）` }, 'withered', now)
@@ -50,7 +50,7 @@ function applyHook(plot: Plot, name: string, payload: Record<string, unknown>, n
 
   switch (name) {
     case 'UserPromptSubmit':
-      return grow(enter({ ...p, note: null }, 'growing', now))
+      return grow(enter({ ...p, note: null, activity: 'think', lastPrompt: clip(str(payload.prompt)) ?? p.lastPrompt }, 'growing', now))
 
     case 'PostToolUse':
     case 'PostToolUseFailure':
@@ -60,10 +60,15 @@ function applyHook(plot: Plot, name: string, payload: Record<string, unknown>, n
     case 'SubagentStop':
       return grow(p)
 
-    case 'PreToolUse':
+    case 'PreToolUse': {
+      if (fromSubagent) return p
+      const tool = str(payload.tool_name)
+      if (!tool) return p
       // Claude asking a multiple-choice question waits on the user like a finished turn.
-      if (!fromSubagent && str(payload.tool_name) === 'AskUserQuestion') return enter({ ...p, note: '有问题要问你' }, 'thirsty', now)
-      return p
+      if (tool === 'AskUserQuestion') return enter({ ...p, note: '有问题要问你', activity: null }, 'thirsty', now)
+      const activity = activityOf(tool)
+      return activity === p.activity ? p : { ...p, activity }
+    }
 
     case 'PermissionRequest': {
       const tool = str(payload.tool_name)
@@ -81,11 +86,11 @@ function applyHook(plot: Plot, name: string, payload: Record<string, unknown>, n
 
     case 'Stop':
       if (fromSubagent) return p
-      return enter({ ...p, note: null }, 'thirsty', now)
+      return enter({ ...p, note: null, activity: null, summary: clip(str(payload.last_assistant_message)) ?? p.summary }, 'thirsty', now)
 
     case 'StopFailure': {
       const error = str(payload.error) ?? str(payload.message)
-      return enter({ ...p, note: error ? `出错：${error}` : 'API 出错' }, 'withered', now)
+      return enter({ ...p, note: error ? `出错：${error}` : 'API 出错', activity: null }, 'withered', now)
     }
 
     default:
@@ -101,6 +106,43 @@ function enter(plot: Plot, state: PlotState, now: number): Plot {
     state,
     waitingSince: isWaiting(state) ? now : null
   }
+}
+
+/** Which part of town a tool call belongs to (see the Junimo map in docs/DESIGN.md). */
+export function activityOf(tool: string): Activity {
+  switch (tool) {
+    case 'Edit':
+    case 'MultiEdit':
+    case 'Write':
+    case 'NotebookEdit':
+      return 'edit'
+    case 'Bash':
+    case 'BashOutput':
+    case 'KillShell':
+    case 'PowerShell':
+      return 'command'
+    case 'Grep':
+    case 'Glob':
+    case 'LS':
+      return 'search'
+    case 'Task':
+    case 'Agent':
+      return 'delegate'
+    case 'TodoWrite':
+    case 'ExitPlanMode':
+      return 'think'
+    default:
+      // Read, WebFetch, WebSearch and most MCP tools gather information.
+      return 'read'
+  }
+}
+
+const CLIP = 160
+
+function clip(text: string | null): string | null {
+  if (!text) return null
+  const flat = text.replace(/\s+/g, ' ').trim()
+  return flat.length > CLIP ? `${flat.slice(0, CLIP)}…` : flat || null
 }
 
 function grow(plot: Plot): Plot {

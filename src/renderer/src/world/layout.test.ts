@@ -63,6 +63,7 @@ describe('camera', () => {
     expect(after.x).toBeCloseTo(before.x, 0)
     expect(after.y).toBeCloseTo(before.y, 0)
     expect(zoomAt(cam, 800, 600, 0, 0, 99).zoom).toBe(6)
+    expect(zoomAt(cam, 800, 600, 0, 0, 0).zoom).toBe(1)
   })
 
   it('keeps the view inside the map', () => {

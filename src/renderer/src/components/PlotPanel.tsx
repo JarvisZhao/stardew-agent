@@ -4,6 +4,7 @@ import { errorMessage, farm } from '../api'
 import { AGENT_LABEL, STATE_LABEL, waitedFor } from '../labels'
 import { ChatView, ScreenCard, TrustCard, useChat, useScreen } from './ChatView'
 import { Composer } from './Composer'
+import { JunimoAvatar } from './TaskBoard'
 
 interface Props {
   plot: Plot
@@ -37,6 +38,10 @@ export function PlotPanel({ plot, now, onClose }: Props) {
   return (
     <aside className="panel">
       <header className="panel-head">
+        <button className="btn btn-small" onClick={onClose} title="回到委托板，看所有会话">
+          ← 委托板
+        </button>
+        <JunimoAvatar plotId={plot.id} />
         <div className="panel-title">
           <h2>{plot.name}</h2>
           <p className="muted" title={plot.cwd}>
@@ -57,9 +62,7 @@ export function PlotPanel({ plot, now, onClose }: Props) {
             休眠
           </button>
         )}
-        <button className="btn btn-icon" onClick={onClose} title="收起">
-          ✕
-        </button>
+
       </header>
 
       {/* Waiting states have their own cards in the chat; only errors need the banner. */}

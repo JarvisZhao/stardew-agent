@@ -2,7 +2,8 @@
 
 import { PALETTE, SPRITES, type SpriteName } from '../../../shared/sprites'
 import * as art from './art'
-import { TILE, type PropKind, type WorldLayout } from './layout'
+import { TILE, type Prop, type WorldLayout } from './layout'
+import * as town from './townArt'
 import { hex, Pix } from './pixel'
 
 export interface Sprite {
@@ -23,19 +24,36 @@ function cached(key: string, paint: () => Pix): Sprite {
   return sprite
 }
 
-/** Everything flat on the ground: grass, paths, flowers, the fence. */
+/** Everything flat on the ground: grass, paths, plaza, river, cliff, the fence. */
 export function ground(layout: WorldLayout): Sprite {
-  const { field } = layout
+  const { field, plaza, river } = layout
   return cached(`ground-${layout.cols}x${layout.rows}`, () => {
     const p = new Pix(layout.cols * TILE, layout.rows * TILE)
     art.paintGrass(p, 7)
     layout.paths.forEach((path, i) => art.paintPath(p, path.tx, path.ty, path.tw, path.th, 20 + i))
-    const inField = (x: number, y: number): boolean =>
-      x > field.tx * TILE - 4 && x < (field.tx + field.tw) * TILE + 4 && y > field.ty * TILE - 4 && y < (field.ty + field.th) * TILE + 4
-    const onPath = (x: number, y: number): boolean =>
-      layout.paths.some((r) => x >= r.tx * TILE - 2 && x < (r.tx + r.tw) * TILE + 2 && y >= r.ty * TILE - 2 && y < (r.ty + r.th) * TILE + 2)
-    art.paintDecor(p, 9, Math.floor((p.w * p.h) / 900), (x, y) => inField(x, y) || onPath(x, y))
+    town.paintPlaza(p, plaza.tx, plaza.ty, plaza.tw, plaza.th, 11)
+    const inRect = (r: { tx: number; ty: number; tw: number; th: number }, x: number, y: number, pad: number): boolean =>
+      x >= r.tx * TILE - pad && x < (r.tx + r.tw) * TILE + pad && y >= r.ty * TILE - pad && y < (r.ty + r.th) * TILE + pad
+    art.paintDecor(p, 9, Math.floor((p.w * p.h) / 900), (x, y) =>
+      y < (layout.cliffRows + 1) * TILE ||
+      inRect(field, x, y, 4) ||
+      inRect(plaza, x, y, 2) ||
+      inRect({ tx: river.tx, ty: 0, tw: river.tw, th: layout.rows }, x, y, 2) ||
+      layout.paths.some((r) => inRect(r, x, y, 2))
+    )
     art.paintFence(p, field.tx, field.ty, field.tw, field.th, field.gate)
+    town.paintRiver(p, river.tx, river.tw, layout.cliffRows, 12)
+    layout.bridges.forEach((b) => town.paintBridge(p, b.tx, b.ty, b.tw, b.th))
+    // The cliff, leaving the waterfall visible.
+    const cliff = new Pix(p.w, layout.cliffRows * TILE + 2)
+    town.paintCliff(cliff, layout.cliffRows, 13)
+    for (let y = 0; y < cliff.h; y++) {
+      for (let x = 0; x < cliff.w; x++) {
+        if (x >= river.tx * TILE && x < (river.tx + river.tw) * TILE) continue
+        const c = cliff.get(x, y)
+        if (c && c[3] > 0) p.set(x, y, c)
+      }
+    }
     return p
   })
 }
@@ -48,23 +66,48 @@ export function emptyBed(): Sprite {
   return cached('empty-bed', () => art.emptyBed(3, 2))
 }
 
-export function prop(kind: PropKind, seed: number): Sprite {
+export function prop(prop: Prop): Sprite {
+  const { kind, seed } = prop
   switch (kind) {
     case 'farmhouse':
       return cached('farmhouse', art.farmhouse)
-    case 'library':
-      return cached('library', art.library)
+    case 'museum':
+      return cached('museum', art.library)
+    case 'communityCenter':
+      return cached('community-center', town.communityCenter)
+    case 'blacksmith':
+      return cached('blacksmith', town.blacksmith)
+    case 'junimoHut':
+      return cached('junimo-hut', town.junimoHut)
+    case 'mine':
+      return cached('mine', town.mineEntrance)
+    case 'fountain':
+      return cached('fountain', town.fountain)
     case 'shippingBin':
       return cached('bin', art.shippingBin)
     case 'mailbox':
       return cached('mailbox', art.mailbox)
     case 'bulletinBoard':
       return cached('board', art.bulletinBoard)
+    case 'lamp':
+      return cached('lamp', town.lampPost)
     case 'tree':
       return cached(`tree-${seed % 6}`, () => art.tree(seed % 6))
+    case 'autumnTree': {
+      const colour = prop.variant ?? 'orange'
+      return cached(`autumn-${colour}-${seed % 4}`, () => town.roundTree(seed % 4, colour))
+    }
+    case 'pine':
+      return cached(`pine-${seed % 4}`, () => town.pineTree(seed % 4))
     case 'bush':
       return cached(`bush-${seed % 4}`, () => art.bush(seed % 4))
+    case 'mushroom':
+      return cached(`mushroom-${seed % 2}`, () => town.mushroom(seed % 2))
   }
+}
+
+export function junimo(colour: string, frame: 0 | 1): Sprite {
+  return cached(`junimo-${colour}-${frame}`, () => town.junimo(colour, frame))
 }
 
 /** A crop sprite from the shared set, with a little shadow under it. */

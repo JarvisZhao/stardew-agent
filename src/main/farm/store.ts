@@ -19,9 +19,12 @@ export function loadFarm(dataDir: string): FarmSnapshot {
     const raw = JSON.parse(fs.readFileSync(path.join(dataDir, FILE), 'utf8')) as Partial<StoredFarm>
     if (raw.version !== VERSION) return { plots: [], harvested: [] }
     const plots = Array.isArray(raw.plots) ? raw.plots : []
-    // Farms saved before plots had slots: keep their order.
+    // Fill in fields added after a farm was saved (older plots had no slots: keep their order).
     plots.forEach((p, i) => {
       if (typeof p.slot !== 'number') p.slot = i
+      p.activity ??= null
+      p.lastPrompt ??= null
+      p.summary ??= null
     })
     return {
       plots,

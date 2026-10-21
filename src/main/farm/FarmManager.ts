@@ -128,7 +128,10 @@ export class FarmManager extends EventEmitter<FarmManagerEvents> {
       updatedAt: now,
       waitingSince: now,
       note: null,
-      slot: freeSlot(this.plots)
+      slot: freeSlot(this.plots),
+      activity: null,
+      lastPrompt: null,
+      summary: null
     }
     this.plots = [...this.plots, plot]
     this.chats.set(plot.id, [])

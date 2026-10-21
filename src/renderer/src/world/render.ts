@@ -6,6 +6,7 @@ import { growthStage, wiltLevel } from '../../../shared/plotMachine'
 import type { SpriteName } from '../../../shared/sprites'
 import type { Plot, PlotState } from '../../../shared/types'
 import { statusLine } from '../labels'
+import { junimoBubble, junimoColour, junimoDestination } from './junimos'
 import { bedRect, type Camera, type WorldLayout } from './layout'
 import * as sprites from './sprites'
 import { walkFrame, type Walker } from './walker'
@@ -17,7 +18,10 @@ export interface Scene {
   freeSlot: number
   selectedId: string | null
   hoverSlot: number | null
+  /** The farmer (you). */
   walker: Walker
+  /** One Junimo per session, keyed by plot id. */
+  junimos: Map<string, Walker>
   now: number
 }
 
@@ -96,7 +100,7 @@ export function renderScene(ctx: CanvasRenderingContext2D, view: View, cam: Came
   // Everything that stands up, sorted by where it touches the ground.
   const standing: Standing[] = []
   for (const prop of layout.props) {
-    const s = sprites.prop(prop.kind, prop.seed)
+    const s = sprites.prop(prop)
     standing.push({ baseline: prop.y + s.h - 4, draw: () => put(s, prop.x, prop.y) })
   }
   for (const plot of scene.plots) {
@@ -135,6 +139,21 @@ export function renderScene(ctx: CanvasRenderingContext2D, view: View, cam: Came
   const w = scene.walker
   const farmerSprite = sprites.farmer(w.facing, walkFrame(w))
   standing.push({ baseline: w.y, draw: () => put(farmerSprite, Math.round(w.x - 8), Math.round(w.y - 25), w.facing === 'side' && w.left) })
+  for (const plot of scene.plots) {
+    const j = scene.junimos.get(plot.id)
+    if (!j) continue
+    // Hop while walking; resting Junimos only bob now and then.
+    const frame: 0 | 1 = j.moving ? (Math.floor(j.walked / 5) % 2 as 0 | 1) : plot.state === 'dormant' ? 1 : (tick + plot.slot) % 4 === 0 ? 1 : 0
+    const sprite = sprites.junimo(junimoColour(plot.id), frame)
+    standing.push({
+      baseline: j.y,
+      draw: () => {
+        ctx.filter = plot.state === 'dormant' ? 'brightness(0.8) saturate(0.6)' : 'none'
+        put(sprite, Math.round(j.x - 7), Math.round(j.y - 14), j.facing === 'side' && j.left)
+        ctx.filter = 'none'
+      }
+    })
+  }
 
   standing.sort((a, b) => a.baseline - b.baseline)
   for (const s of standing) s.draw()
@@ -147,6 +166,9 @@ export function renderScene(ctx: CanvasRenderingContext2D, view: View, cam: Came
       const bob = plot.state === 'dormant' || plot.state === 'ripe' ? 0 : (tick + plot.slot) % 2
       put(sprites.bubble(icon), bed.x + bed.w - 8, bed.y - 15 - bob)
     }
+    const j = scene.junimos.get(plot.id)
+    const jIcon = junimoBubble(plot)
+    if (j && jIcon && !j.moving) put(sprites.bubble(jIcon), Math.round(j.x - 4), Math.round(j.y - 32 - ((tick + plot.slot) % 2)))
     if (plot.state === 'ripe') {
       ctx.fillStyle = '#fff3a8'
       for (let i = 0; i < 3; i++) {
@@ -159,15 +181,44 @@ export function renderScene(ctx: CanvasRenderingContext2D, view: View, cam: Came
     }
   }
 
-  // Name signs, drawn at screen resolution.
+  // Name signs, drawn at screen resolution. Zoomed far out there is only room for names.
+  const compact = z / view.dpr < 1.75
   for (let slot = 0; slot < layout.slots; slot++) {
     const plot = bySlot.get(slot)
     if (!plot && slot !== scene.freeSlot) continue
     const bed = bedRect(layout, slot)
     const cx = sx(bed.x + bed.w / 2)
     const top = sy(bed.y + bed.h + 4)
+    if (compact) {
+      tag(ctx, view.dpr, cx, top - Math.round(2 * view.dpr), plot ? plot.name : '开垦新地', plot?.id === scene.selectedId)
+      continue
+    }
     label(ctx, view.dpr, cx, top, plot ? plot.name : '开垦新地', plot ? statusLine(plot, scene.now) : '点这里开一个新会话', plot?.state ?? null, plot?.id === scene.selectedId)
   }
+
+  // Junimos away from their plot carry a small name tag.
+  if (compact) return
+  for (const plot of scene.plots) {
+    const j = scene.junimos.get(plot.id)
+    if (!j || j.moving || junimoDestination(plot) === 'plot') continue
+    tag(ctx, view.dpr, sx(j.x), sy(j.y + 2), plot.name, plot.id === scene.selectedId)
+  }
+}
+
+function tag(ctx: CanvasRenderingContext2D, dpr: number, cx: number, top: number, text: string, selected: boolean): void {
+  const size = Math.round(10 * dpr)
+  const pad = Math.round(3 * dpr)
+  ctx.font = `${size}px ${FONT}`
+  const name = ellipsize(ctx, text, 72 * dpr)
+  const w = Math.round(ctx.measureText(name).width + pad * 2)
+  const h = Math.round(size + pad * 1.2)
+  const x = Math.round(cx - w / 2)
+  ctx.fillStyle = selected ? 'rgba(255, 216, 74, 0.95)' : 'rgba(43, 26, 14, 0.78)'
+  ctx.fillRect(x, top, w, h)
+  ctx.fillStyle = selected ? '#2b1a0e' : '#fff8e0'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'top'
+  ctx.fillText(name, cx, top + Math.round(pad * 0.6))
 }
 
 function cropSprite(plot: Plot): SpriteName {

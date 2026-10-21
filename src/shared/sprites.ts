@@ -24,7 +24,11 @@ export const PALETTE: Palette = {
   P: '#ff8a7a', // bug highlight
   y: '#ffd84a', // star
   Y: '#fff3a8', // star highlight
-  z: '#4a5a9a' // sleep
+  z: '#4a5a9a', // sleep
+  k: '#7a4ab8', // book cover
+  c: '#fff8e0', // paper
+  s: '#a8a8b4', // steel
+  S: '#6a6a74' // steel shadow
 }
 
 export const SOIL_DRY: Palette = { a: '#b07a42', b: '#80522a', c: '#c8935a' }
@@ -192,6 +196,12 @@ export const SPRITES = {
     '.zzz....',
     '........'
   ],
+  fire: ['...y....', '..yo....', '..yoy...', '.yooy.y.', '.yoRoyo.', 'yoRRRoo.', 'yoRRRRoy', '.yooooy.'],
+  book: ['.xxxxxx.', '.xkkkkcx', '.xkkkkcx', '.xkyykcx', '.xkkkkcx', '.xkkkkcx', '.xkkkkcx', '.xxxxxx.'],
+  pick: ['.xxxxxx.', 'xsssssSx', 'xSx..xSx', 'x..xT..x', '...xT...', '...xT...', '...xT...', '...xx...'],
+  leaf: ['...xx...', '..xGGx..', '.xGggGx.', '.xggggx.', '..xggx..', '...xdx..', '...xdx..', '....x...'],
+  exclaim: ['...xx...', '..xRRx..', '..xRRx..', '..xRRx..', '...xx...', '........', '..xRRx..', '...xx...'],
+  scroll: ['.xxxxxx.', 'xccccccx', '.xcyycx.', '.xccccx.', '.xcyycx.', '.xccccx.', 'xccccccx', '.xxxxxx.'],
   cross: [
     'xx....xx',
     'xRx..xRx',

@@ -26,16 +26,39 @@ function insideField(layout: WorldLayout, x: number, y: number): boolean {
   return x > f.tx * TILE && x < (f.tx + f.tw) * TILE && y > f.ty * TILE && y < (f.ty + f.th) * TILE
 }
 
-/** Waypoints from the walker's position to the target, via the gate when crossing the fence. */
+/** Which side of the river a point is on. */
+function eastOfRiver(layout: WorldLayout, x: number): boolean {
+  return x >= (layout.river.tx + layout.river.tw / 2) * TILE
+}
+
+/**
+ * Waypoints from `from` to `to`: out through the field gate, over the nearest
+ * bridge when crossing the river, back in through the gate.
+ */
 export function planRoute(layout: WorldLayout, from: { x: number; y: number }, to: { x: number; y: number }): Array<{ x: number; y: number }> {
   const f = layout.field
   const gateX = (f.tx + (f.gate.from + f.gate.to) / 2) * TILE
-  const outside = { x: gateX, y: f.ty * TILE - 6 }
-  const inside = { x: gateX, y: f.ty * TILE + 14 }
-  const a = insideField(layout, from.x, from.y)
-  const b = insideField(layout, to.x, to.y)
-  if (a === b) return [to]
-  return a ? [inside, outside, to] : [outside, inside, to]
+  const gateOutside = { x: gateX, y: f.ty * TILE - 6 }
+  const gateInside = { x: gateX, y: f.ty * TILE + 14 }
+  const route: Array<{ x: number; y: number }> = []
+  const fromField = insideField(layout, from.x, from.y)
+  const toField = insideField(layout, to.x, to.y)
+  if (fromField && !toField) route.push(gateInside, gateOutside)
+
+  const start = route.at(-1) ?? from
+  if (eastOfRiver(layout, start.x) !== eastOfRiver(layout, to.x)) {
+    // The bridge closest to the halfway height.
+    const midY = (start.y + to.y) / 2
+    const bridge = layout.bridges.reduce((best, b) => (Math.abs((b.ty + b.th / 2) * TILE - midY) < Math.abs((best.ty + best.th / 2) * TILE - midY) ? b : best))
+    const y = (bridge.ty + bridge.th / 2) * TILE + 2
+    const west = { x: (bridge.tx - 1) * TILE, y }
+    const east = { x: (bridge.tx + bridge.tw + 1) * TILE, y }
+    route.push(...(eastOfRiver(layout, start.x) ? [east, west] : [west, east]))
+  }
+
+  if (toField && !fromField) route.push(gateOutside, gateInside)
+  route.push(to)
+  return route
 }
 
 export function walkTo(w: Walker, layout: WorldLayout, target: { x: number; y: number }): void {
